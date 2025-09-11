@@ -1,0 +1,63 @@
+[package]
+name = "ppm"
+version = "0.1.0"
+edition = "2021"
+authors = ["PPM Contributors"]
+description = "A unified package manager for JavaScript and Python projects"
+license = "MIT"
+
+[dependencies]
+# CLI framework with derive support
+clap = { version = "4.4", features = ["derive", "env", "unicode", "wrap_help"] }
+
+# Serialization/deserialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
+
+# HTTP client for registry APIs
+reqwest = { version = "0.11", features = ["json", "stream"] }
+
+# Cryptographic hashing for content addressing
+sha2 = "0.10"
+
+# Cross-platform symlink support
+symlink = "0.1"
+
+# File system utilities
+tempfile = "3.8"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+[lints.rust]
+unsafe_code = "forbid"
+# Allow unused dependencies during setup phase
+unused_crate_dependencies = "allow"
+
+[lints.clippy]
+# Pedantic lints for high code quality (lower priority to allow overrides)
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+# Allow some pedantic lints that can be noisy
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+# Performance lints (lower priority)
+perf = { level = "warn", priority = -1 }
+# Style consistency (lower priority)
+style = { level = "warn", priority = -1 }
+
+[profile.dev]
+debug = true
+opt-level = 0
+
+[profile.release]
+debug = false
+opt-level = 3
+lto = true
+codegen-units = 1

@@ -1,0 +1,37 @@
+# Clippy configuration for PPM
+# See: https://doc.rust-lang.org/clippy/configuration.html
+
+# Maximum cognitive complexity for functions
+cognitive-complexity-threshold = 25
+
+# Maximum lines in a single function
+too-many-lines-threshold = 100
+
+# Maximum number of arguments for a function
+too-many-arguments-threshold = 7
+
+# Maximum length for single letter variable names
+single-char-binding-names-threshold = 4
+
+# Avoid false positives for common abbreviations in package management
+allowed-scripts = ["npm", "pip", "venv", "ppm"]
+
+# Enable additional restriction lints for production code quality
+disallowed-methods = [
+    { path = "std::process::exit", reason = "Use proper error handling instead" },
+]
+
+# Documentation requirements  
+doc-valid-idents = [
+    "npm",
+    "PyPI", 
+    "JavaScript",
+    "TypeScript",
+    "PPM",
+    "CLI",
+    "API",
+    "HTTP",
+    "JSON",
+    "TOML",
+    "SHA256",
+]

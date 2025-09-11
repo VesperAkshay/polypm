@@ -1,0 +1,14 @@
+# Rustfmt configuration for PPM
+# Using only stable rustfmt options
+
+# Edition and basic formatting
+edition = "2021"
+max_width = 100
+hard_tabs = false
+tab_spaces = 4
+
+# Function formatting  
+fn_params_layout = "Tall"
+
+# Advanced options for consistency (stable only)
+use_small_heuristics = "Default"

@@ -1,0 +1,9 @@
+memory
+scripts
+specs
+templates
+.github/copilot-instructions.md
+
+# Added by cargo
+
+/target
