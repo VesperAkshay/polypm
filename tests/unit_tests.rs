@@ -4,4 +4,5 @@
 mod unit {
     mod test_models;
     mod test_clients;
+    mod test_resolver;
 }
