@@ -172,13 +172,21 @@ fn test_ppm_init_with_json_output() {
     cmd.current_dir(project_path)
         .args(&["init", "--json"]);
         
-    cmd.assert()
-        .success();
+    // Get output first to check both success and content
+    let output = cmd.output().unwrap();
+    assert!(output.status.success(), "Command failed with stderr: {}", String::from_utf8_lossy(&output.stderr));
         
     // Parse JSON output
-    let output = cmd.output().unwrap();
     let stdout = String::from_utf8(output.stdout).unwrap();
-    let json: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    
+    let json: serde_json::Value = match serde_json::from_str(&stdout) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("Failed to parse JSON: {}", e);
+            eprintln!("Stdout content: {}", stdout);
+            panic!("JSON parsing failed");
+        }
+    };
     
     assert_eq!(json["status"], "success");
     assert!(json["project_name"].is_string());

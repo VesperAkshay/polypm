@@ -7,3 +7,8 @@ templates
 # Added by cargo
 
 /target
+
+
+#Test-Directories
+testdir
+temp_test

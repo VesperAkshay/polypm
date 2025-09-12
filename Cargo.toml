@@ -27,6 +27,9 @@ sha2 = "0.10"
 # Cross-platform symlink support
 symlink = "0.1"
 
+# Regular expressions for validation
+regex = "1.10"
+
 # File system utilities
 tempfile = "3.8"
 

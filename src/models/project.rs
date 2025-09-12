@@ -34,13 +34,73 @@ pub struct Project {
     /// Project version (must follow semver)
     pub version: String,
     /// Production dependencies organized by ecosystem
+    #[serde(default)]
     pub dependencies: HashMap<Ecosystem, HashMap<String, VersionSpec>>,
     /// Development dependencies organized by ecosystem
+    #[serde(default)]
     pub dev_dependencies: HashMap<Ecosystem, HashMap<String, VersionSpec>>,
     /// Project scripts (script name → command)
+    #[serde(default)]
     pub scripts: HashMap<String, String>,
     /// Optional virtual environment configuration for Python
+    #[serde(default)]
     pub venv_config: Option<VenvConfig>,
+}
+
+/// TOML representation of a project configuration file
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProjectToml {
+    /// Project metadata
+    pub project: ProjectInfo,
+    /// Production dependencies organized by ecosystem
+    #[serde(default)]
+    pub dependencies: HashMap<Ecosystem, HashMap<String, VersionSpec>>,
+    /// Development dependencies organized by ecosystem
+    #[serde(default, rename = "dev-dependencies")]
+    pub dev_dependencies: HashMap<Ecosystem, HashMap<String, VersionSpec>>,
+    /// Project scripts (script name → command)
+    #[serde(default)]
+    pub scripts: HashMap<String, String>,
+    /// Optional virtual environment configuration for Python
+    #[serde(default)]
+    pub venv: Option<VenvConfig>,
+}
+
+/// Project metadata section in TOML
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProjectInfo {
+    /// Project name (must be valid identifier)
+    pub name: String,
+    /// Project version (must follow semver)
+    pub version: String,
+}
+
+impl From<ProjectToml> for Project {
+    fn from(toml: ProjectToml) -> Self {
+        Project {
+            name: toml.project.name,
+            version: toml.project.version,
+            dependencies: toml.dependencies,
+            dev_dependencies: toml.dev_dependencies,
+            scripts: toml.scripts,
+            venv_config: toml.venv,
+        }
+    }
+}
+
+impl From<Project> for ProjectToml {
+    fn from(project: Project) -> Self {
+        ProjectToml {
+            project: ProjectInfo {
+                name: project.name,
+                version: project.version,
+            },
+            dependencies: project.dependencies,
+            dev_dependencies: project.dev_dependencies,
+            scripts: project.scripts,
+            venv: project.venv_config,
+        }
+    }
 }
 
 impl Project {

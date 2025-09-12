@@ -1,8 +1,11 @@
 // PPM - Polyglot Package Manager
-// Main CLI entry point (placeholder for TDD)
+// Main CLI entry point
 
 use clap::{Parser, Subcommand};
 use std::process;
+use ppm::cli::init::InitCommand;
+use ppm::cli::install::InstallCommand;
+use ppm::cli::add::AddCommand;
 
 #[derive(Parser)]
 #[command(name = "ppm")]
@@ -16,28 +19,31 @@ struct Cli {
 enum Commands {
     /// Initialize a new polyglot project
     Init {
-        /// Project name
+        /// Project name (default: current directory name)
         #[arg(long)]
         name: Option<String>,
-        /// Initial version
-        #[arg(long, default_value = "1.0.0")]
-        version: String,
-        /// Include JavaScript dependencies section
+        
+        /// Initial version (default: "1.0.0")
         #[arg(long)]
+        version: Option<String>,
+        
+        /// Include JavaScript dependencies section only
+        #[arg(long, conflicts_with = "python")]
         javascript: bool,
-        /// Include Python dependencies section  
-        #[arg(long)]
+        
+        /// Include Python dependencies section only
+        #[arg(long, conflicts_with = "javascript")]
         python: bool,
-        /// Include both ecosystems (default)
-        #[arg(long)]
-        both: bool,
+        
         /// Overwrite existing project.toml
         #[arg(long)]
         force: bool,
-        /// Output as JSON
+        
+        /// Output JSON instead of human-readable text
         #[arg(long)]
         json: bool,
     },
+    
     /// Install dependencies
     Install {
         /// Packages to install (if empty, install from project.toml)
@@ -144,23 +150,63 @@ enum VenvCommands {
     Shell,
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let cli = Cli::parse();
     
-    match cli.command {
-        Commands::Init { .. } => {
-            // This is intentionally not implemented yet - tests should fail!
-            eprintln!("Error: ppm init command not implemented yet");
-            process::exit(1);
+    let result = match cli.command {
+        Commands::Init { name, version, javascript, python, force, json } => {
+            let init_cmd = InitCommand {
+                name,
+                version,
+                javascript,
+                python,
+                force,
+                json,
+            };
+            init_cmd.run().await
         }
-        Commands::Install { .. } => {
-            // This is intentionally not implemented yet - tests should fail!
-            eprintln!("Error: ppm install command not implemented yet");
-            process::exit(1);
+        Commands::Install { 
+            packages, 
+            save, 
+            save_dev, 
+            javascript, 
+            python, 
+            no_symlinks, 
+            offline, 
+            frozen, 
+            json 
+        } => {
+            let install_cmd = InstallCommand {
+                packages,
+                save,
+                save_dev,
+                javascript,
+                python,
+                no_symlinks,
+                offline,
+                frozen,
+                json,
+            };
+            install_cmd.run().await
         }
-        Commands::Add { .. } => {
-            eprintln!("Error: ppm add command not implemented yet");
-            process::exit(1);
+        Commands::Add { 
+            packages, 
+            save_dev, 
+            javascript, 
+            python, 
+            version, 
+            json 
+        } => {
+            let add_cmd = AddCommand {
+                packages,
+                save_dev,
+                javascript,
+                python,
+                version,
+                json,
+            };
+            add_cmd.execute().await
         }
         Commands::Run { .. } => {
             eprintln!("Error: ppm run command not implemented yet");
@@ -170,5 +216,10 @@ fn main() {
             eprintln!("Error: ppm venv command not implemented yet");
             process::exit(1);
         }
+    };
+    
+    if let Err(err) = result {
+        eprintln!("Error: {}", err);
+        process::exit(1);
     }
 }
