@@ -17,6 +17,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use sha2::{Digest, Sha256};
+use base64::{engine::general_purpose, Engine as _};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tokio::fs;
@@ -300,32 +301,161 @@ impl PackageInstaller {
     }
 
     /// Install a single package to the global store
+    /// Install a single package
     async fn install_package(&mut self, resolved: &ResolvedDependency) -> Result<bool, PpmError> {
-        // For now, simulate package installation
-        // In a real implementation, this would:
-        // 1. Check if package is already installed using global store
-        // 2. Download package from registry
-        // 3. Verify integrity using SHA-256 hash
-        // 4. Extract and store in global store
-        // 5. Update global store index
-        
-        println!("Installing package: {}@{}", resolved.name, resolved.version);
-        
-        // Simulate package verification
-        if !resolved.integrity.is_empty() {
-            let hash = &resolved.integrity;
-            println!("Verifying integrity: {}", hash);
+        // Check if package is already installed in global store
+        if self.is_package_installed(&resolved.name, &resolved.version, &resolved.ecosystem) {
+            if !self.config.force_update {
+                println!("Package {}@{} already installed, skipping", resolved.name, resolved.version);
+                return Ok(false); // Skipped
+            }
         }
-        
-        // Simulate storage in global store
-        // Use the store path from the resolved dependency  
+
+        println!("Installing package: {}@{} ({})", resolved.name, resolved.version, resolved.ecosystem);
+
+        // Download package based on ecosystem
+        let package_data = match resolved.ecosystem {
+            Ecosystem::JavaScript => self.download_npm_package(resolved).await?,
+            Ecosystem::Python => self.download_pypi_package(resolved).await?,
+        };
+
+        // Verify package integrity
+        if !self.config.skip_verification {
+            self.verify_package_integrity(resolved, &package_data)?;
+            println!("✓ Package integrity verified for {}@{}", resolved.name, resolved.version);
+        }
+
+        // Store package in global store
         let store_path = PathBuf::from(&resolved.store_path);
-        println!("Would store package at: {}", store_path.display());
-        
-        // Simulate download and installation time
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-        
+        self.store_package_data(&store_path, &package_data).await?;
+
+        // Update global store index
+        self.add_package_to_global_store(
+            &resolved.name,
+            &resolved.version,
+            &resolved.ecosystem,
+            &resolved.store_path,
+            &resolved.integrity,
+        )?;
+
+        println!("✓ Package {}@{} installed successfully", resolved.name, resolved.version);
         Ok(true) // Successfully installed
+    }
+
+    /// Download NPM package
+    async fn download_npm_package(&self, resolved: &ResolvedDependency) -> Result<Vec<u8>, PpmError> {
+        // Get package info from npm
+        let package_info = self.npm_client.get_package_info(&resolved.name)
+            .await
+            .map_err(|e| PpmError::NetworkError(format!("Failed to get npm package info: {}", e)))?;
+
+        // Find the specific version
+        let version_info = package_info.versions.get(&resolved.version)
+            .ok_or_else(|| PpmError::ValidationError(format!("Version {} not found for {}", resolved.version, resolved.name)))?;
+
+        // Download the package tarball
+        self.npm_client.download_package(&version_info.dist.tarball)
+            .await
+            .map_err(|e| PpmError::NetworkError(format!("Failed to download npm package: {}", e)))
+    }
+
+    /// Download PyPI package
+    async fn download_pypi_package(&self, resolved: &ResolvedDependency) -> Result<Vec<u8>, PpmError> {
+        // Get best download file for the version
+        let release_file = self.pypi_client.get_best_download_file(&resolved.name, &resolved.version)
+            .await
+            .map_err(|e| PpmError::NetworkError(format!("Failed to get pypi package info: {}", e)))?;
+
+        // Download with verification
+        self.pypi_client.download_package_with_verification(&release_file)
+            .await
+            .map_err(|e| PpmError::NetworkError(format!("Failed to download pypi package: {}", e)))
+    }
+
+    /// Store package data to disk
+    async fn store_package_data(&self, store_path: &Path, data: &[u8]) -> Result<(), PpmError> {
+        // Create parent directories
+        if let Some(parent) = store_path.parent() {
+            fs::create_dir_all(parent).await
+                .map_err(|e| PpmError::IoError(e))?;
+        }
+
+        // Write package data
+        fs::write(store_path, data).await
+            .map_err(|e| PpmError::IoError(e))?;
+
+        println!("Package data stored at: {}", store_path.display());
+        Ok(())
+    }
+
+    /// Extract package archive and organize files
+    async fn extract_package(&self, store_path: &Path, ecosystem: &Ecosystem) -> Result<PathBuf, PpmError> {
+        let extract_dir = store_path.with_extension("extracted");
+        
+        // Create extraction directory
+        fs::create_dir_all(&extract_dir).await
+            .map_err(|e| PpmError::IoError(e))?;
+
+        // Extract based on ecosystem-specific archive format
+        match ecosystem {
+            Ecosystem::JavaScript => {
+                // For npm packages, we'd extract .tgz files
+                // For now, create a placeholder structure
+                self.create_npm_package_structure(&extract_dir, store_path).await?;
+            }
+            Ecosystem::Python => {
+                // For Python packages, we'd extract .whl or .tar.gz files
+                // For now, create a placeholder structure
+                self.create_python_package_structure(&extract_dir, store_path).await?;
+            }
+        }
+
+        Ok(extract_dir)
+    }
+
+    /// Create npm package structure placeholder
+    async fn create_npm_package_structure(&self, extract_dir: &Path, _archive_path: &Path) -> Result<(), PpmError> {
+        // Create package.json placeholder
+        let package_json = extract_dir.join("package.json");
+        let placeholder_content = r#"{
+  "name": "placeholder",
+  "version": "1.0.0",
+  "description": "Package extracted by PPM",
+  "main": "index.js"
+}"#;
+        fs::write(&package_json, placeholder_content).await
+            .map_err(|e| PpmError::IoError(e))?;
+
+        // Create index.js placeholder
+        let index_js = extract_dir.join("index.js");
+        fs::write(&index_js, "// Package placeholder\nmodule.exports = {};").await
+            .map_err(|e| PpmError::IoError(e))?;
+
+        Ok(())
+    }
+
+    /// Create Python package structure placeholder
+    async fn create_python_package_structure(&self, extract_dir: &Path, _archive_path: &Path) -> Result<(), PpmError> {
+        // Create __init__.py placeholder
+        let init_py = extract_dir.join("__init__.py");
+        fs::write(&init_py, "# Package placeholder\n").await
+            .map_err(|e| PpmError::IoError(e))?;
+
+        // Create setup.py placeholder
+        let setup_py = extract_dir.join("setup.py");
+        let placeholder_content = r#"from setuptools import setup
+
+setup(
+    name="placeholder",
+    version="1.0.0",
+    description="Package extracted by PPM",
+    packages=[],
+)
+"#;
+        fs::write(&setup_py, placeholder_content).await
+            .map_err(|e| PpmError::IoError(e))?;
+
+        Ok(())
     }
 
     /// Create simplified symlinks for project dependencies
@@ -397,21 +527,52 @@ impl PackageInstaller {
         resolved: &ResolvedDependency,
         data: &[u8],
     ) -> Result<(), PpmError> {
-        if !resolved.integrity.is_empty() {
-            let expected_hash = &resolved.integrity;
-            let mut hasher = Sha256::new();
-            hasher.update(data);
-            let actual_hash = format!("{:x}", hasher.finalize());
-
-            if actual_hash != *expected_hash {
-                return Err(PpmError::ValidationError(format!(
-                    "Hash mismatch for {}: expected {}, got {}",
-                    resolved.name,
-                    expected_hash,
-                    actual_hash
-                )));
-            }
+        if resolved.integrity.is_empty() {
+            return Err(PpmError::ValidationError("No integrity hash provided for package verification".to_string()));
         }
+
+        // Parse integrity string (format: "sha256-base64hash" or "sha512-base64hash")
+        let (algorithm, expected_hash) = if resolved.integrity.starts_with("sha256-") {
+            ("sha256", &resolved.integrity[7..])
+        } else if resolved.integrity.starts_with("sha512-") {
+            ("sha512", &resolved.integrity[7..])
+        } else {
+            // Assume raw SHA-256 hex if no prefix
+            ("sha256-hex", resolved.integrity.as_str())
+        };
+
+        // Calculate actual hash
+        let actual_hash = match algorithm {
+            "sha256" => {
+                let mut hasher = Sha256::new();
+                hasher.update(data);
+                let result = hasher.finalize();
+                general_purpose::STANDARD.encode(result)
+            }
+            "sha256-hex" => {
+                let mut hasher = Sha256::new();
+                hasher.update(data);
+                format!("{:x}", hasher.finalize())
+            }
+            "sha512" => {
+                // For SHA-512, we'd need to import sha2::Sha512
+                // For now, only support SHA-256
+                return Err(PpmError::ValidationError("SHA-512 verification not yet implemented".to_string()));
+            }
+            _ => {
+                return Err(PpmError::ValidationError(format!("Unsupported hash algorithm: {}", algorithm)));
+            }
+        };
+
+        // Compare hashes
+        if actual_hash != expected_hash {
+            return Err(PpmError::ValidationError(format!(
+                "Package integrity verification failed for {}@{}: expected {}, got {}",
+                resolved.name, resolved.version, expected_hash, actual_hash
+            )));
+        }
+
+        println!("✓ Package integrity verified with {} hash", algorithm);
         Ok(())
     }
 
@@ -452,6 +613,59 @@ impl PackageInstaller {
         stats.insert("total_size_bytes".to_string(), 0);
 
         Ok(stats)
+    }
+
+    /// Check if a package is already installed in the global store
+    fn is_package_installed(&self, name: &str, version: &str, ecosystem: &Ecosystem) -> bool {
+        let packages = self.global_store.find_packages(name, ecosystem);
+        packages.iter().any(|entry| entry.version == version)
+    }
+
+    /// Add a package to the global store index
+    fn add_package_to_global_store(
+        &mut self,
+        name: &str,
+        version: &str,
+        ecosystem: &Ecosystem,
+        store_path: &str,
+        integrity: &str,
+    ) -> Result<(), PpmError> {
+        // Create a Package instance to store in the global store
+        let package = crate::models::package::Package::new(
+            name.to_string(),
+            version.to_string(),
+            ecosystem.clone(),
+            integrity.to_string(),
+            PathBuf::from(store_path),
+        );
+
+        self.global_store.store_package(&package)
+            .map_err(|e| PpmError::ValidationError(format!("Failed to store package in global store: {}", e)))?;
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+impl PackageInstaller {
+    /// Public wrapper for install_package for testing
+    pub async fn test_install_package(&mut self, resolved: &ResolvedDependency) -> Result<bool, PpmError> {
+        self.install_package(resolved).await
+    }
+    
+    /// Public wrapper for verify_package_integrity for testing
+    pub fn test_verify_package_integrity(&self, resolved: &ResolvedDependency, data: &[u8]) -> Result<(), PpmError> {
+        self.verify_package_integrity(resolved, data)
+    }
+    
+    /// Public wrapper for store_package_data for testing
+    pub async fn test_store_package_data(&self, store_path: &Path, data: &[u8]) -> Result<(), PpmError> {
+        self.store_package_data(store_path, data).await
+    }
+    
+    /// Public wrapper for extract_package for testing
+    pub async fn test_extract_package(&self, store_path: &Path, ecosystem: &Ecosystem) -> Result<PathBuf, PpmError> {
+        self.extract_package(store_path, ecosystem).await
     }
 }
 

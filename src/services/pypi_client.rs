@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::time::Duration;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use anyhow::Result;
@@ -224,8 +225,14 @@ pub enum PypiError {
 impl PypiClient {
     /// Create a new PyPI registry client
     pub fn new() -> Self {
+        let client = Client::builder()
+            .timeout(Duration::from_secs(30))
+            .user_agent(&format!("ppm/{}", env!("CARGO_PKG_VERSION")))
+            .build()
+            .expect("Failed to create HTTP client");
+            
         Self {
-            client: Client::new(),
+            client,
             registry_url: "https://pypi.org".to_string(),
             simple_url: "https://pypi.org/simple".to_string(),
             user_agent: format!("ppm/{}", env!("CARGO_PKG_VERSION")),
@@ -235,8 +242,14 @@ impl PypiClient {
     /// Create a new PyPI client with custom registry URL (for testing)
     pub fn with_registry_url(registry_url: String) -> Self {
         let simple_url = format!("{}/simple", registry_url);
+        let client = Client::builder()
+            .timeout(Duration::from_secs(30))
+            .user_agent(&format!("ppm/{}", env!("CARGO_PKG_VERSION")))
+            .build()
+            .expect("Failed to create HTTP client");
+            
         Self {
-            client: Client::new(),
+            client,
             registry_url,
             simple_url,
             user_agent: format!("ppm/{}", env!("CARGO_PKG_VERSION")),
@@ -254,7 +267,7 @@ impl PypiClient {
         }
     }
     
-    /// Get package information from PyPI JSON API
+    /// Get package information from PyPI JSON API with retry logic
     pub async fn get_package_info(&self, package_name: &str) -> Result<PypiPackageResponse, PypiError> {
         // Validate package name
         Ecosystem::Python.validate_package_name(package_name)
@@ -262,31 +275,63 @@ impl PypiClient {
         
         let url = format!("{}/pypi/{}/json", self.registry_url, package_name);
         
-        let response = self.client
-            .get(&url)
-            .header("User-Agent", &self.user_agent)
-            .header("Accept", "application/json")
-            .send()
-            .await?;
+        // Retry logic for transient failures
+        let mut attempts = 0;
+        let max_attempts = 3;
         
-        if response.status() == 404 {
-            return Err(PypiError::PackageNotFound(package_name.to_string()));
+        loop {
+            attempts += 1;
+            
+            let response = self.client
+                .get(&url)
+                .header("User-Agent", &self.user_agent)
+                .header("Accept", "application/json")
+                .send()
+                .await;
+            
+            match response {
+                Ok(resp) => {
+                    if resp.status() == 404 {
+                        return Err(PypiError::PackageNotFound(package_name.to_string()));
+                    }
+                    
+                    if resp.status() == 429 {
+                        return Err(PypiError::RateLimited);
+                    }
+                    
+                    if !resp.status().is_success() {
+                        if attempts >= max_attempts {
+                            return Err(PypiError::RequestFailed(
+                                resp.error_for_status().unwrap_err()
+                            ));
+                        }
+                        // Wait before retry (exponential backoff)
+                        tokio::time::sleep(Duration::from_millis(100 * 2_u64.pow(attempts - 1))).await;
+                        continue;
+                    }
+                    
+                    match resp.json().await {
+                        Ok(package_info) => return Ok(package_info),
+                        Err(e) => {
+                            if attempts >= max_attempts {
+                                return Err(PypiError::ParseError(e.to_string()));
+                            }
+                            // Wait before retry
+                            tokio::time::sleep(Duration::from_millis(100 * 2_u64.pow(attempts - 1))).await;
+                            continue;
+                        }
+                    }
+                }
+                Err(e) => {
+                    if attempts >= max_attempts {
+                        return Err(PypiError::RequestFailed(e));
+                    }
+                    // Wait before retry
+                    tokio::time::sleep(Duration::from_millis(100 * 2_u64.pow(attempts - 1))).await;
+                    continue;
+                }
+            }
         }
-        
-        if response.status() == 429 {
-            return Err(PypiError::RateLimited);
-        }
-        
-        if !response.status().is_success() {
-            return Err(PypiError::RequestFailed(
-                response.error_for_status().unwrap_err()
-            ));
-        }
-        
-        let package_info: PypiPackageResponse = response.json().await
-            .map_err(|e| PypiError::ParseError(e.to_string()))?;
-        
-        Ok(package_info)
     }
     
     /// Get specific version information for a package
@@ -458,22 +503,75 @@ impl PypiClient {
         cache.update_package(cached_info);
     }
     
-    /// Download package file (returns raw bytes)
+    /// Download package file with retry logic
     pub async fn download_package(&self, download_url: &str) -> Result<Vec<u8>, PypiError> {
-        let response = self.client
-            .get(download_url)
-            .header("User-Agent", &self.user_agent)
-            .send()
-            .await?;
+        let mut attempts = 0;
+        let max_attempts = 3;
         
-        if !response.status().is_success() {
-            return Err(PypiError::RequestFailed(
-                response.error_for_status().unwrap_err()
-            ));
+        loop {
+            attempts += 1;
+            
+            let response = self.client
+                .get(download_url)
+                .header("User-Agent", &self.user_agent)
+                .send()
+                .await;
+            
+            match response {
+                Ok(resp) => {
+                    if !resp.status().is_success() {
+                        if attempts >= max_attempts {
+                            return Err(PypiError::RequestFailed(
+                                resp.error_for_status().unwrap_err()
+                            ));
+                        }
+                        // Wait before retry
+                        tokio::time::sleep(Duration::from_millis(200 * 2_u64.pow(attempts - 1))).await;
+                        continue;
+                    }
+                    
+                    match resp.bytes().await {
+                        Ok(bytes) => return Ok(bytes.to_vec()),
+                        Err(e) => {
+                            if attempts >= max_attempts {
+                                return Err(PypiError::RequestFailed(e));
+                            }
+                            // Wait before retry
+                            tokio::time::sleep(Duration::from_millis(200 * 2_u64.pow(attempts - 1))).await;
+                            continue;
+                        }
+                    }
+                }
+                Err(e) => {
+                    if attempts >= max_attempts {
+                        return Err(PypiError::RequestFailed(e));
+                    }
+                    // Wait before retry
+                    tokio::time::sleep(Duration::from_millis(200 * 2_u64.pow(attempts - 1))).await;
+                    continue;
+                }
+            }
+        }
+    }
+    
+    /// Download and verify package integrity
+    pub async fn download_package_with_verification(&self, release_file: &PypiReleaseFile) -> Result<Vec<u8>, PypiError> {
+        let bytes = self.download_package(&release_file.url).await?;
+        
+        // Verify SHA256 checksum
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(&bytes);
+        let computed_hash = format!("{:x}", hasher.finalize());
+        
+        if computed_hash != release_file.digests.sha256 {
+            return Err(PypiError::ParseError(format!(
+                "Package integrity verification failed. Expected {}, got {}",
+                release_file.digests.sha256, computed_hash
+            )));
         }
         
-        let bytes = response.bytes().await?;
-        Ok(bytes.to_vec())
+        Ok(bytes)
     }
     
     /// Get best download file for a package version (prefers wheels over source)
@@ -519,6 +617,45 @@ impl PypiClient {
             Ok(_) => Ok(true),
             Err(PypiError::PackageNotFound(_)) => Ok(false),
             Err(e) => Err(e),
+        }
+    }
+    
+    /// Batch fetch multiple package infos (useful for dependency resolution)
+    pub async fn get_multiple_package_infos(&self, package_names: &[String]) -> Vec<(String, Result<PypiPackageResponse, PypiError>)> {
+        // Limit concurrent requests to avoid overwhelming the registry
+        let chunk_size = 5;
+        let mut results = Vec::new();
+        
+        for chunk in package_names.chunks(chunk_size) {
+            let mut chunk_results = Vec::new();
+            
+            for name in chunk {
+                let result = self.get_package_info(name).await;
+                chunk_results.push((name.clone(), result));
+                
+                // Small delay between individual requests in chunk
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+            
+            results.extend(chunk_results);
+            
+            // Longer delay between chunks
+            if package_names.len() > chunk_size {
+                tokio::time::sleep(Duration::from_millis(300)).await;
+            }
+        }
+        
+        results
+    }
+    
+    /// Get registry health/status information
+    pub async fn get_registry_status(&self) -> Result<bool, PypiError> {
+        // Simple health check by trying to get info for a well-known package
+        match self.package_exists("pip").await {
+            Ok(_) => Ok(true),
+            Err(PypiError::Timeout) => Ok(false),
+            Err(PypiError::RequestFailed(_)) => Ok(false),
+            Err(_) => Ok(true), // Other errors suggest registry is up but had other issues
         }
     }
     

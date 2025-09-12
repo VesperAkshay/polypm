@@ -9,6 +9,7 @@ pub enum PpmError {
     ConfigError(String),
     NetworkError(String),
     ValidationError(String),
+    ExecutionError(String),
 }
 
 impl fmt::Display for PpmError {
@@ -18,6 +19,7 @@ impl fmt::Display for PpmError {
             PpmError::ConfigError(msg) => write!(f, "Configuration error: {}", msg),
             PpmError::NetworkError(msg) => write!(f, "Network error: {}", msg),
             PpmError::ValidationError(msg) => write!(f, "Validation error: {}", msg),
+            PpmError::ExecutionError(msg) => write!(f, "Execution error: {}", msg),
         }
     }
 }

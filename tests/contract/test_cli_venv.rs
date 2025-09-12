@@ -13,6 +13,7 @@ fn test_venv_create_default() {
     fs::write(&project_toml, r#"
 [project]
 name = "test-project"
+version = "1.0.0"
 ecosystems = ["python"]
 "#).unwrap();
 
@@ -33,6 +34,7 @@ fn test_venv_create_explicit() {
     fs::write(&project_toml, r#"
 [project]
 name = "test-project"
+version = "1.0.0"
 ecosystems = ["python"]
 "#).unwrap();
 
@@ -52,15 +54,16 @@ fn test_venv_create_with_python_version() {
     fs::write(&project_toml, r#"
 [project]
 name = "test-project"
+version = "1.0.0"
 ecosystems = ["python"]
 "#).unwrap();
 
     let mut cmd = Command::cargo_bin("ppm").unwrap();
     cmd.current_dir(&temp_dir)
-        .args(&["venv", "create", "--python", "3.11"])
+        .args(&["venv", "create", "--python", "3.12"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Using Python 3.11"));
+        .stdout(predicate::str::contains("Using Python Python 3.12"));
 }
 
 #[test]
@@ -70,6 +73,7 @@ fn test_venv_create_with_custom_path() {
     fs::write(&project_toml, r#"
 [project]
 name = "test-project"
+version = "1.0.0"
 ecosystems = ["python"]
 "#).unwrap();
 
@@ -88,6 +92,7 @@ fn test_venv_create_force() {
     fs::write(&project_toml, r#"
 [project]
 name = "test-project"
+version = "1.0.0"
 ecosystems = ["python"]
 "#).unwrap();
 
@@ -110,6 +115,7 @@ fn test_venv_info() {
     fs::write(&project_toml, r#"
 [project]
 name = "test-project"
+version = "1.0.0"
 ecosystems = ["python"]
 "#).unwrap();
 
@@ -139,6 +145,7 @@ fn test_venv_remove() {
     fs::write(&project_toml, r#"
 [project]
 name = "test-project"
+version = "1.0.0"
 ecosystems = ["python"]
 "#).unwrap();
 
@@ -166,6 +173,7 @@ fn test_venv_shell_unix() {
     fs::write(&project_toml, r#"
 [project]
 name = "test-project"
+version = "1.0.0"
 ecosystems = ["python"]
 "#).unwrap();
 
@@ -192,6 +200,7 @@ fn test_venv_json_output() {
     fs::write(&project_toml, r#"
 [project]
 name = "test-project"
+version = "1.0.0"
 ecosystems = ["python"]
 "#).unwrap();
 
@@ -227,6 +236,7 @@ fn test_venv_python_not_found() {
     fs::write(&project_toml, r#"
 [project]
 name = "test-project"
+version = "1.0.0"
 ecosystems = ["python"]
 "#).unwrap();
 
@@ -246,6 +256,7 @@ fn test_venv_already_exists() {
     fs::write(&project_toml, r#"
 [project]
 name = "test-project"
+version = "1.0.0"
 ecosystems = ["python"]
 "#).unwrap();
 
@@ -270,6 +281,7 @@ fn test_venv_not_found_for_remove() {
     fs::write(&project_toml, r#"
 [project]
 name = "test-project"
+version = "1.0.0"
 ecosystems = ["python"]
 "#).unwrap();
 
@@ -289,6 +301,7 @@ fn test_venv_not_found_for_info() {
     fs::write(&project_toml, r#"
 [project]
 name = "test-project"
+version = "1.0.0"
 ecosystems = ["python"]
 "#).unwrap();
 

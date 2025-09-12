@@ -7,4 +7,7 @@ mod integration {
     mod test_script_execution;
     mod test_dependency_management;
     mod test_offline_development;
+    mod test_npm_integration;
+    mod test_pypi_integration;
+    mod test_package_installer;
 }

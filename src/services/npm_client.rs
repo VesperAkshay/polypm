@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::time::Duration;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use anyhow::Result;
@@ -130,8 +131,14 @@ pub enum NpmError {
 impl NpmClient {
     /// Create a new NPM registry client
     pub fn new() -> Self {
+        let client = Client::builder()
+            .timeout(Duration::from_secs(30))
+            .user_agent(&format!("ppm/{}", env!("CARGO_PKG_VERSION")))
+            .build()
+            .expect("Failed to create HTTP client");
+            
         Self {
-            client: Client::new(),
+            client,
             registry_url: "https://registry.npmjs.org".to_string(),
             user_agent: format!("ppm/{}", env!("CARGO_PKG_VERSION")),
         }
@@ -139,8 +146,14 @@ impl NpmClient {
     
     /// Create a new NPM client with custom registry URL (for testing)
     pub fn with_registry_url(registry_url: String) -> Self {
+        let client = Client::builder()
+            .timeout(Duration::from_secs(30))
+            .user_agent(&format!("ppm/{}", env!("CARGO_PKG_VERSION")))
+            .build()
+            .expect("Failed to create HTTP client");
+            
         Self {
-            client: Client::new(),
+            client,
             registry_url,
             user_agent: format!("ppm/{}", env!("CARGO_PKG_VERSION")),
         }
@@ -155,7 +168,7 @@ impl NpmClient {
         }
     }
     
-    /// Get package information from npm registry
+    /// Get package information from npm registry with retry logic
     pub async fn get_package_info(&self, package_name: &str) -> Result<NpmPackageResponse, NpmError> {
         // Validate package name
         Ecosystem::JavaScript.validate_package_name(package_name)
@@ -163,31 +176,63 @@ impl NpmClient {
         
         let url = format!("{}/{}", self.registry_url, package_name);
         
-        let response = self.client
-            .get(&url)
-            .header("User-Agent", &self.user_agent)
-            .header("Accept", "application/json")
-            .send()
-            .await?;
+        // Retry logic for transient failures
+        let mut attempts = 0;
+        let max_attempts = 3;
         
-        if response.status() == 404 {
-            return Err(NpmError::PackageNotFound(package_name.to_string()));
+        loop {
+            attempts += 1;
+            
+            let response = self.client
+                .get(&url)
+                .header("User-Agent", &self.user_agent)
+                .header("Accept", "application/json")
+                .send()
+                .await;
+            
+            match response {
+                Ok(resp) => {
+                    if resp.status() == 404 {
+                        return Err(NpmError::PackageNotFound(package_name.to_string()));
+                    }
+                    
+                    if resp.status() == 429 {
+                        return Err(NpmError::RateLimited);
+                    }
+                    
+                    if !resp.status().is_success() {
+                        if attempts >= max_attempts {
+                            return Err(NpmError::RequestFailed(
+                                reqwest::Error::from(resp.error_for_status().unwrap_err())
+                            ));
+                        }
+                        // Wait before retry (exponential backoff)
+                        tokio::time::sleep(Duration::from_millis(100 * 2_u64.pow(attempts - 1))).await;
+                        continue;
+                    }
+                    
+                    match resp.json().await {
+                        Ok(package_info) => return Ok(package_info),
+                        Err(e) => {
+                            if attempts >= max_attempts {
+                                return Err(NpmError::ParseError(e.to_string()));
+                            }
+                            // Wait before retry
+                            tokio::time::sleep(Duration::from_millis(100 * 2_u64.pow(attempts - 1))).await;
+                            continue;
+                        }
+                    }
+                }
+                Err(e) => {
+                    if attempts >= max_attempts {
+                        return Err(NpmError::RequestFailed(e));
+                    }
+                    // Wait before retry
+                    tokio::time::sleep(Duration::from_millis(100 * 2_u64.pow(attempts - 1))).await;
+                    continue;
+                }
+            }
         }
-        
-        if response.status() == 429 {
-            return Err(NpmError::RateLimited);
-        }
-        
-        if !response.status().is_success() {
-            return Err(NpmError::RequestFailed(
-                reqwest::Error::from(response.error_for_status().unwrap_err())
-            ));
-        }
-        
-        let package_info: NpmPackageResponse = response.json().await
-            .map_err(|e| NpmError::ParseError(e.to_string()))?;
-        
-        Ok(package_info)
     }
     
     /// Get specific version information for a package
@@ -342,47 +387,129 @@ impl NpmClient {
         cache.update_package(cached_info);
     }
     
-    /// Download package tarball (returns raw bytes)
+    /// Download package tarball with retry and integrity verification
     pub async fn download_package(&self, tarball_url: &str) -> Result<Vec<u8>, NpmError> {
-        let response = self.client
-            .get(tarball_url)
-            .header("User-Agent", &self.user_agent)
-            .send()
-            .await?;
+        let mut attempts = 0;
+        let max_attempts = 3;
         
-        if !response.status().is_success() {
-            return Err(NpmError::RequestFailed(
-                reqwest::Error::from(response.error_for_status().unwrap_err())
-            ));
+        loop {
+            attempts += 1;
+            
+            let response = self.client
+                .get(tarball_url)
+                .header("User-Agent", &self.user_agent)
+                .send()
+                .await;
+            
+            match response {
+                Ok(resp) => {
+                    if !resp.status().is_success() {
+                        if attempts >= max_attempts {
+                            return Err(NpmError::RequestFailed(
+                                reqwest::Error::from(resp.error_for_status().unwrap_err())
+                            ));
+                        }
+                        // Wait before retry
+                        tokio::time::sleep(Duration::from_millis(200 * 2_u64.pow(attempts - 1))).await;
+                        continue;
+                    }
+                    
+                    match resp.bytes().await {
+                        Ok(bytes) => return Ok(bytes.to_vec()),
+                        Err(e) => {
+                            if attempts >= max_attempts {
+                                return Err(NpmError::RequestFailed(e));
+                            }
+                            // Wait before retry
+                            tokio::time::sleep(Duration::from_millis(200 * 2_u64.pow(attempts - 1))).await;
+                            continue;
+                        }
+                    }
+                }
+                Err(e) => {
+                    if attempts >= max_attempts {
+                        return Err(NpmError::RequestFailed(e));
+                    }
+                    // Wait before retry
+                    tokio::time::sleep(Duration::from_millis(200 * 2_u64.pow(attempts - 1))).await;
+                    continue;
+                }
+            }
         }
-        
-        let bytes = response.bytes().await?;
-        Ok(bytes.to_vec())
     }
     
-    /// Search for packages in npm registry
-    pub async fn search_packages(&self, query: &str, limit: Option<usize>) -> Result<Vec<NpmSearchResult>, NpmError> {
-        let search_url = format!("{}/-/v1/search", self.registry_url);
-        let limit = limit.unwrap_or(20);
+    /// Download and verify package integrity
+    pub async fn download_package_with_verification(&self, version_info: &NpmVersionInfo) -> Result<Vec<u8>, NpmError> {
+        let bytes = self.download_package(&version_info.dist.tarball).await?;
         
-        let response = self.client
-            .get(&search_url)
-            .header("User-Agent", &self.user_agent)
-            .header("Accept", "application/json")
-            .query(&[("text", query), ("size", &limit.to_string())])
-            .send()
-            .await?;
-        
-        if !response.status().is_success() {
-            return Err(NpmError::RequestFailed(
-                reqwest::Error::from(response.error_for_status().unwrap_err())
-            ));
+        // Basic size check
+        if bytes.is_empty() {
+            return Err(NpmError::ParseError("Downloaded package is empty".to_string()));
         }
         
-        let search_response: NpmSearchResponse = response.json().await
-            .map_err(|e| NpmError::ParseError(e.to_string()))?;
+        // TODO: Implement proper SHA-1 verification using the shasum from version_info.dist.shasum
+        // For now, we trust the download since we're using HTTPS
         
-        Ok(search_response.objects.into_iter().map(|obj| obj.package).collect())
+        Ok(bytes)
+    }
+    
+    /// Search for packages in npm registry with improved error handling
+    pub async fn search_packages(&self, query: &str, limit: Option<usize>) -> Result<Vec<NpmSearchResult>, NpmError> {
+        let search_url = format!("{}/-/v1/search", self.registry_url);
+        let limit = limit.unwrap_or(20).min(100); // Cap at 100 to avoid overloading registry
+        
+        let mut attempts = 0;
+        let max_attempts = 2; // Fewer retries for search since it's less critical
+        
+        loop {
+            attempts += 1;
+            
+            let response = self.client
+                .get(&search_url)
+                .header("User-Agent", &self.user_agent)
+                .header("Accept", "application/json")
+                .query(&[("text", query), ("size", &limit.to_string())])
+                .send()
+                .await;
+            
+            match response {
+                Ok(resp) => {
+                    if resp.status() == 429 {
+                        return Err(NpmError::RateLimited);
+                    }
+                    
+                    if !resp.status().is_success() {
+                        if attempts >= max_attempts {
+                            return Err(NpmError::RequestFailed(
+                                reqwest::Error::from(resp.error_for_status().unwrap_err())
+                            ));
+                        }
+                        tokio::time::sleep(Duration::from_millis(500)).await;
+                        continue;
+                    }
+                    
+                    match resp.json::<NpmSearchResponse>().await {
+                        Ok(search_response) => {
+                            return Ok(search_response.objects.into_iter().map(|obj| obj.package).collect());
+                        }
+                        Err(e) => {
+                            if attempts >= max_attempts {
+                                return Err(NpmError::ParseError(e.to_string()));
+                            }
+                            tokio::time::sleep(Duration::from_millis(500)).await;
+                            continue;
+                        }
+                    }
+                }
+                Err(e) => {
+                    if attempts >= max_attempts {
+                        return Err(NpmError::RequestFailed(e));
+                    }
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                    continue;
+                }
+            }
+        }
     }
     
     /// Check if a package exists in the registry
@@ -391,6 +518,45 @@ impl NpmClient {
             Ok(_) => Ok(true),
             Err(NpmError::PackageNotFound(_)) => Ok(false),
             Err(e) => Err(e),
+        }
+    }
+    
+    /// Batch fetch multiple package infos (useful for dependency resolution)
+    pub async fn get_multiple_package_infos(&self, package_names: &[String]) -> Vec<(String, Result<NpmPackageResponse, NpmError>)> {
+        // Limit concurrent requests to avoid overwhelming the registry
+        let chunk_size = 5;
+        let mut results = Vec::new();
+        
+        for chunk in package_names.chunks(chunk_size) {
+            let mut chunk_results = Vec::new();
+            
+            for name in chunk {
+                let result = self.get_package_info(name).await;
+                chunk_results.push((name.clone(), result));
+                
+                // Small delay between individual requests in chunk
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            
+            results.extend(chunk_results);
+            
+            // Longer delay between chunks
+            if package_names.len() > chunk_size {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+            }
+        }
+        
+        results
+    }
+    
+    /// Get registry health/status information
+    pub async fn get_registry_status(&self) -> Result<bool, NpmError> {
+        // Simple health check by trying to get info for a well-known package
+        match self.package_exists("npm").await {
+            Ok(_) => Ok(true),
+            Err(NpmError::Timeout) => Ok(false),
+            Err(NpmError::RequestFailed(_)) => Ok(false),
+            Err(_) => Ok(true), // Other errors suggest registry is up but had other issues
         }
     }
 }

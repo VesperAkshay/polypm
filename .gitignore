@@ -12,3 +12,5 @@ templates
 #Test-Directories
 testdir
 temp_test
+test_venv
+test_js

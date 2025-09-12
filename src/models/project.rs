@@ -33,6 +33,9 @@ pub struct Project {
     pub name: String,
     /// Project version (must follow semver)
     pub version: String,
+    /// Supported ecosystems for this project
+    #[serde(default)]
+    pub ecosystems: Vec<Ecosystem>,
     /// Production dependencies organized by ecosystem
     #[serde(default)]
     pub dependencies: HashMap<Ecosystem, HashMap<String, VersionSpec>>,
@@ -73,13 +76,18 @@ pub struct ProjectInfo {
     pub name: String,
     /// Project version (must follow semver)
     pub version: String,
+    /// Supported ecosystems for this project
+    #[serde(default)]
+    pub ecosystems: Option<Vec<Ecosystem>>,
 }
 
 impl From<ProjectToml> for Project {
     fn from(toml: ProjectToml) -> Self {
+        let ecosystems = toml.project.ecosystems.unwrap_or_default();
         Project {
             name: toml.project.name,
             version: toml.project.version,
+            ecosystems,
             dependencies: toml.dependencies,
             dev_dependencies: toml.dev_dependencies,
             scripts: toml.scripts,
@@ -94,6 +102,7 @@ impl From<Project> for ProjectToml {
             project: ProjectInfo {
                 name: project.name,
                 version: project.version,
+                ecosystems: None, // Will be determined from dependencies
             },
             dependencies: project.dependencies,
             dev_dependencies: project.dev_dependencies,
@@ -109,6 +118,7 @@ impl Project {
         Self {
             name,
             version,
+            ecosystems: Vec::new(),
             dependencies: HashMap::new(),
             dev_dependencies: HashMap::new(),
             scripts: HashMap::new(),
@@ -121,6 +131,7 @@ impl Project {
         Self {
             name,
             version,
+            ecosystems: vec![Ecosystem::Python],
             dependencies: HashMap::new(),
             dev_dependencies: HashMap::new(),
             scripts: HashMap::new(),
