@@ -14,6 +14,7 @@ use crate::services::{
     virtual_environment_manager::VirtualEnvironmentManager,
 };
 use crate::utils::error::PpmError;
+use crate::utils_ext::performance::ParallelDownloader;
 use chrono::Utc;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -148,6 +149,8 @@ pub struct PackageInstaller {
     symlink_manager: SymlinkManager,
     /// Virtual environment manager for Python packages
     venv_manager: VirtualEnvironmentManager,
+    /// Parallel downloader for optimized downloads
+    parallel_downloader: ParallelDownloader,
 }
 
 impl PackageInstaller {
@@ -156,7 +159,8 @@ impl PackageInstaller {
         global_store: GlobalStore,
         config: Option<InstallConfig>,
     ) -> Result<Self, PpmError> {
-        let timeout_duration = config.as_ref().map(|c| c.download_timeout).unwrap_or(300);
+        let config = config.unwrap_or_default();
+        let timeout_duration = config.download_timeout;
         
         let http_client = Client::builder()
             .timeout(std::time::Duration::from_secs(timeout_duration))
@@ -174,15 +178,24 @@ impl PackageInstaller {
         let symlink_manager = SymlinkManager::new();
         let venv_manager = VirtualEnvironmentManager::new();
 
+        // Initialize parallel downloader with configuration
+        let parallel_downloader = ParallelDownloader::new(
+            config.max_concurrent,
+            100, // 100MB cache
+            3600, // 1 hour TTL
+            timeout_duration,
+        ).map_err(|e| PpmError::NetworkError(format!("Failed to create parallel downloader: {}", e)))?;
+
         Ok(Self {
             resolver,
             global_store,
             http_client,
             npm_client,
             pypi_client,
-            config: config.unwrap_or_default(),
+            config,
             symlink_manager,
             venv_manager,
+            parallel_downloader,
         })
     }
 
@@ -243,7 +256,7 @@ impl PackageInstaller {
                     )));
                 }
 
-                // Install resolved dependencies
+                // For now, keep sequential installation but optimize individual downloads
                 for resolved_dep in &resolution.resolved {
                     match self.install_package(resolved_dep).await {
                         Ok(installed) => {
@@ -353,7 +366,7 @@ impl PackageInstaller {
         Ok(true) // Successfully installed
     }
 
-    /// Download NPM package
+    /// Download NPM package using parallel downloader
     async fn download_npm_package(&self, resolved: &ResolvedDependency) -> Result<Vec<u8>, PpmError> {
         // Get package info from npm
         let package_info = self.npm_client.get_package_info(&resolved.name)
@@ -364,23 +377,53 @@ impl PackageInstaller {
         let version_info = package_info.versions.get(&resolved.version)
             .ok_or_else(|| PpmError::ValidationError(format!("Version {} not found for {}", resolved.version, resolved.name)))?;
 
-        // Download the package tarball
-        self.npm_client.download_package(&version_info.dist.tarball)
-            .await
-            .map_err(|e| PpmError::NetworkError(format!("Failed to download npm package: {}", e)))
+        // Create a download key for caching
+        let download_key = format!("npm:{}@{}", resolved.name, resolved.version);
+        
+        // Create metadata for caching
+        let metadata = crate::utils_ext::performance::CacheMetadata {
+            name: resolved.name.clone(),
+            version: resolved.version.clone(),
+            ecosystem: "javascript".to_string(),
+            content_type: Some("application/gzip".to_string()),
+            integrity: Some(resolved.integrity.clone()),
+        };
+
+        // Download using parallel downloader
+        self.parallel_downloader.download_single(
+            download_key,
+            version_info.dist.tarball.clone(),
+            metadata
+        ).await
+        .map_err(|e| PpmError::NetworkError(format!("Failed to download npm package: {}", e)))
     }
 
-    /// Download PyPI package
+    /// Download PyPI package using parallel downloader
     async fn download_pypi_package(&self, resolved: &ResolvedDependency) -> Result<Vec<u8>, PpmError> {
         // Get best download file for the version
         let release_file = self.pypi_client.get_best_download_file(&resolved.name, &resolved.version)
             .await
             .map_err(|e| PpmError::NetworkError(format!("Failed to get pypi package info: {}", e)))?;
 
-        // Download with verification
-        self.pypi_client.download_package_with_verification(&release_file)
-            .await
-            .map_err(|e| PpmError::NetworkError(format!("Failed to download pypi package: {}", e)))
+        // Create a download key for caching
+        let download_key = format!("pypi:{}@{}", resolved.name, resolved.version);
+        
+        // Create metadata for caching
+        let metadata = crate::utils_ext::performance::CacheMetadata {
+            name: resolved.name.clone(),
+            version: resolved.version.clone(),
+            ecosystem: "python".to_string(),
+            content_type: Some("application/octet-stream".to_string()),
+            integrity: Some(resolved.integrity.clone()),
+        };
+
+        // Download using parallel downloader
+        self.parallel_downloader.download_single(
+            download_key,
+            release_file.url,
+            metadata
+        ).await
+        .map_err(|e| PpmError::NetworkError(format!("Failed to download pypi package: {}", e)))
     }
 
     /// Store package data to disk
@@ -731,6 +774,21 @@ setup(
         stats.insert("total_size_bytes".to_string(), 0);
 
         Ok(stats)
+    }
+
+    /// Get cache statistics from the parallel downloader
+    pub fn get_cache_stats(&self) -> crate::utils_ext::performance::CacheStats {
+        self.parallel_downloader.cache_stats()
+    }
+
+    /// Get active download progress
+    pub fn get_download_progress(&self) -> Vec<crate::utils_ext::performance::DownloadProgress> {
+        self.parallel_downloader.get_all_progress()
+    }
+
+    /// Clear the download cache
+    pub fn clear_cache(&mut self) {
+        self.parallel_downloader.clear_cache();
     }
 
     /// Check if a package is already installed in the global store

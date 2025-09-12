@@ -27,7 +27,10 @@ toml = "0.8"
 tokio = { version = "1.35", features = ["full"] }
 
 # HTTP client for registry APIs
-reqwest = { version = "0.11", features = ["json", "stream"] }
+reqwest = { version = "0.11", features = ["json", "stream", "rustls-tls"] }
+
+# Async utilities for stream processing
+futures-util = "0.3"
 
 # Cryptographic hashing for content addressing
 sha2 = "0.10"
