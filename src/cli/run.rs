@@ -256,32 +256,33 @@ impl RunCommand {
         if project.dependencies.contains_key(&Ecosystem::Python) || 
            project.dev_dependencies.contains_key(&Ecosystem::Python) {
             
-            let venv_path = current_dir.join(".ppm").join("venv");
+            let venv_path = current_dir.join(".venv");
             if venv_path.exists() {
                 env_vars.insert(
                     "VIRTUAL_ENV".to_string(),
                     venv_path.to_string_lossy().to_string()
                 );
                 
-                // Set PYTHONPATH to include site-packages
-                let site_packages = if cfg!(target_os = "windows") {
-                    venv_path.join("Lib").join("site-packages")
+                // Set PYTHONHOME to empty to avoid conflicts
+                env_vars.insert("PYTHONHOME".to_string(), String::new());
+                
+                // Add virtual environment to PATH
+                let venv_scripts = if cfg!(target_os = "windows") {
+                    venv_path.join("Scripts")
                 } else {
-                    venv_path.join("lib").join("python3").join("site-packages")
+                    venv_path.join("bin")
                 };
                 
-                if site_packages.exists() {
-                    env_vars.insert(
-                        "PYTHONPATH".to_string(),
-                        site_packages.to_string_lossy().to_string()
+                if venv_scripts.exists() {
+                    // Get current PATH and prepend venv scripts
+                    let current_path = env::var("PATH").unwrap_or_default();
+                    let new_path = format!("{}{}{}", 
+                        venv_scripts.to_string_lossy(),
+                        if cfg!(target_os = "windows") { ";" } else { ":" },
+                        current_path
                     );
+                    env_vars.insert("PATH".to_string(), new_path);
                 }
-            } else {
-                // Set a default path in .ppm
-                env_vars.insert(
-                    "PYTHONPATH".to_string(),
-                    current_dir.join(".ppm").join("python").to_string_lossy().to_string()
-                );
             }
         }
 

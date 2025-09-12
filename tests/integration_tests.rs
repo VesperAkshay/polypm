@@ -11,4 +11,5 @@ mod integration {
     mod test_pypi_integration;
     mod test_package_installer;
     mod test_symlink_manager;
+    mod test_virtual_environment_manager;
 }

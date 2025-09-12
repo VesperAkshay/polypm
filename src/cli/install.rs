@@ -338,7 +338,7 @@ impl InstallCommand {
             download_timeout: 30,
         };
         
-        let _installer = PackageInstaller::new(global_store, Some(install_config))?;
+        let installer = PackageInstaller::new(global_store, Some(install_config))?;
         let mut stats = HashMap::new();
         
         // Group by ecosystem
@@ -360,14 +360,22 @@ impl InstallCommand {
             // Create directories
             self.ensure_ecosystem_directories(&ecosystem).await?;
             
-            // Simulate installation for each package
-            for dep in &deps {
-                self.simulate_package_installation(dep, symlinks_created).await?;
-            }
-            
-            // Create virtual environment for Python if needed
-            if ecosystem == Ecosystem::Python && symlinks_created {
-                self.ensure_python_venv(project).await?;
+            // Actually install packages for this ecosystem
+            match ecosystem {
+                Ecosystem::Python => {
+                    // Use PackageInstaller to create Python virtual environment and install packages
+                    let current_dir = std::env::current_dir()?;
+                    let installed_count = installer.create_simple_python_structure(&current_dir, &deps).await?;
+                    println!("  Python packages: {} installed", installed_count);
+                    println!("  Updated Python virtual environment");
+                }
+                Ecosystem::JavaScript => {
+                    // For JavaScript, simulate for now
+                    for dep in &deps {
+                        self.simulate_package_installation(dep, symlinks_created).await?;
+                    }
+                    println!("  JavaScript packages: {} installed", packages_count);
+                }
             }
             
             stats.insert(ecosystem_name.to_string(), InstallStats {

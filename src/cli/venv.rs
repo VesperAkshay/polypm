@@ -7,6 +7,8 @@ use serde_json::json;
 
 use crate::models::project::{Project, ProjectToml};
 use crate::models::ecosystem::Ecosystem;
+use crate::models::virtual_environment::{VenvConfig, VenvStatus};
+use crate::services::virtual_environment_manager::VirtualEnvironmentManager;
 use crate::utils::error::{PpmError, Result};
 
 /// Virtual environment management commands
@@ -113,7 +115,7 @@ impl VenvHandler {
         let venv_path = if let Some(path) = custom_path {
             PathBuf::from(path)
         } else {
-            PathBuf::from(".ppm").join("venv")
+            PathBuf::from(".venv")  // Changed from ".ppm/venv" to match VenvConfig default
         };
 
         // Check if venv already exists
@@ -146,50 +148,69 @@ impl VenvHandler {
                 .map_err(|e| PpmError::IoError(e))?;
         }
 
-        // Determine Python executable
-        let python_cmd = self.find_python_executable(python_version)?;
-
-        // Create virtual environment
-        let output = Command::new(&python_cmd)
-            .args(&["-m", "venv", venv_path.to_str().unwrap()])
-            .output()
-            .map_err(|e| PpmError::ExecutionError(format!("Failed to create venv: {}", e)))?;
-
-        if !output.status.success() {
-            let error = String::from_utf8_lossy(&output.stderr);
-            return Err(PpmError::ExecutionError(
-                format!("Failed to create virtual environment: {}", error)
-            ));
+        // Create VenvConfig
+        let mut config = VenvConfig::default();
+        if let Some(python) = python_version {
+            config.python = Some(python.to_string());
+        }
+        if let Some(path) = custom_path {
+            config.path = Some(path.to_string());
         }
 
-        // Get Python version info
-        let python_version_info = self.get_python_version(&python_cmd)?;
+        // Create VirtualEnvironmentManager
+        let manager = VirtualEnvironmentManager::with_config(config.clone());
 
-        if json {
-            let response = json!({
-                "status": "success",
-                "command": "create",
-                "venv_path": self.normalize_path_display(&venv_path),
-                "python_version": python_version_info,
-                "python_executable": python_cmd
-            });
-            println!("{}", serde_json::to_string_pretty(&response)
-                .map_err(|e| PpmError::ConfigError(format!("JSON serialization error: {}", e)))?);
-        } else {
-            println!("Created Python virtual environment at {}", self.normalize_path_display(&venv_path));
-            println!("Using Python {}", python_version_info);
-            println!("Virtual environment ready for use");
+        // Get project root
+        let project_root = std::env::current_dir()
+            .map_err(|e| PpmError::IoError(e))?;
+
+        // Create virtual environment using the manager
+        match manager.create_python_venv(&project_root, Some("default"), Some(&config)).await {
+            Ok(creation_result) => {
+                if json {
+                    let response = json!({
+                        "status": "success",
+                        "command": "create",
+                        "venv_path": self.normalize_path_display(&creation_result.venv.path),
+                        "python_version": creation_result.python_version,
+                        "name": creation_result.venv.name,
+                        "ecosystem": creation_result.venv.ecosystem
+                    });
+                    println!("{}", serde_json::to_string_pretty(&response)
+                        .map_err(|e| PpmError::ConfigError(format!("JSON serialization error: {}", e)))?);
+                } else {
+                    println!("Created Python virtual environment at {}", self.normalize_path_display(&creation_result.venv.path));
+                    if let Some(version) = &creation_result.python_version {
+                        println!("Using Python {}", version);
+                    }
+                    println!("Virtual environment ready for use");
+                }
+                Ok(())
+            }
+            Err(e) => {
+                let error_msg = format!("Failed to create virtual environment: {}", e);
+                if json {
+                    let response = json!({
+                        "status": "error",
+                        "command": "create",
+                        "error": error_msg
+                    });
+                    println!("{}", serde_json::to_string_pretty(&response)
+                        .map_err(|e| PpmError::ConfigError(format!("JSON serialization error: {}", e)))?);
+                } else {
+                    eprintln!("Error: {}", error_msg);
+                }
+                Err(e)
+            }
         }
-
-        Ok(())
     }
 
     /// Remove virtual environment
     async fn remove_venv(&self, json: bool) -> Result<()> {
-        let venv_path = PathBuf::from(".ppm").join("venv");
+        let venv_path = PathBuf::from(".venv");  // Changed from ".ppm/venv" to match VenvConfig default
 
         if !venv_path.exists() {
-            let error_msg = "No virtual environment found at .ppm/venv";
+            let error_msg = "No virtual environment found at .venv";  // Updated error message
             if json {
                 let response = json!({
                     "status": "error",
@@ -204,31 +225,48 @@ impl VenvHandler {
             return Err(PpmError::ValidationError(error_msg.to_string()));
         }
 
-        // Remove the directory
-        fs::remove_dir_all(&venv_path)
-            .map_err(|e| PpmError::IoError(e))?;
-
-        if json {
-            let response = json!({
-                "status": "success",
-                "command": "remove",
-                "removed_path": self.normalize_path_display(&venv_path)
-            });
-            println!("{}", serde_json::to_string_pretty(&response)
-                .map_err(|e| PpmError::ConfigError(format!("JSON serialization error: {}", e)))?);
-        } else {
-            println!("Removed virtual environment at {}", self.normalize_path_display(&venv_path));
+        // Use VirtualEnvironmentManager to remove the venv
+        let manager = VirtualEnvironmentManager::new();
+        match manager.remove_venv(&venv_path).await {
+            Ok(message) => {
+                if json {
+                    let response = json!({
+                        "status": "success",
+                        "command": "remove",
+                        "removed_path": self.normalize_path_display(&venv_path),
+                        "message": message
+                    });
+                    println!("{}", serde_json::to_string_pretty(&response)
+                        .map_err(|e| PpmError::ConfigError(format!("JSON serialization error: {}", e)))?);
+                } else {
+                    println!("Removed virtual environment at {}", self.normalize_path_display(&venv_path));
+                }
+                Ok(())
+            }
+            Err(e) => {
+                let error_msg = format!("Failed to remove virtual environment: {}", e);
+                if json {
+                    let response = json!({
+                        "status": "error",
+                        "command": "remove",
+                        "error": error_msg
+                    });
+                    println!("{}", serde_json::to_string_pretty(&response)
+                        .map_err(|e| PpmError::ConfigError(format!("JSON serialization error: {}", e)))?);
+                } else {
+                    eprintln!("Error: {}", error_msg);
+                }
+                Err(e)
+            }
         }
-
-        Ok(())
     }
 
     /// Show virtual environment information
     async fn info_venv(&self, json: bool) -> Result<()> {
-        let venv_path = PathBuf::from(".ppm").join("venv");
+        let venv_path = PathBuf::from(".venv");  // Changed from ".ppm/venv" to match VenvConfig default
 
         if !venv_path.exists() {
-            let error_msg = "No virtual environment found at .ppm/venv";
+            let error_msg = "No virtual environment found at .venv";  // Updated error message
             if json {
                 let response = json!({
                     "status": "error",
@@ -243,27 +281,41 @@ impl VenvHandler {
             return Err(PpmError::ValidationError(error_msg.to_string()));
         }
 
-        // Get Python executable in venv
-        let python_exe = self.get_venv_python_executable(&venv_path);
+        // Use VirtualEnvironmentManager to get info
+        let manager = VirtualEnvironmentManager::new();
         
-        // Get Python version
-        let python_version = if python_exe.exists() {
-            self.get_python_version(python_exe.to_str().unwrap()).unwrap_or_else(|_| "Unknown".to_string())
-        } else {
-            "Unknown".to_string()
+        // Check venv status
+        let status = manager.check_venv_status(&venv_path).await?;
+        let status_str = match status {
+            VenvStatus::NotCreated => "Not Created",
+            VenvStatus::Active => "Active", 
+            VenvStatus::Inactive => "Inactive",
+            VenvStatus::Corrupted => "Corrupted",
         };
 
+        // Get executables info
+        let executables = manager.get_venv_executables(&venv_path).await?;
+        
+        // Find Python and pip info
+        let python_info = executables.iter().find(|e| e.name == "python");
+        let pip_info = executables.iter().find(|e| e.name == "pip");
+
         // Get installed packages (simplified)
-        let packages = self.get_installed_packages(&venv_path).unwrap_or_default();
+        let packages = if status == VenvStatus::Inactive || status == VenvStatus::Active {
+            self.get_installed_packages(&venv_path).unwrap_or_default()
+        } else {
+            HashMap::new()
+        };
 
         if json {
             let response = json!({
                 "status": "success",
                 "command": "info",
                 "venv_path": self.normalize_path_display(&venv_path),
-                "python_executable": self.normalize_path_display(&python_exe),
-                "python_version": python_version,
-                "status": "Active",
+                "python_executable": python_info.map(|p| self.normalize_path_display(&p.path)).unwrap_or_else(|| "Not found".to_string()),
+                "python_version": python_info.map(|p| p.version.clone()).unwrap_or_else(|| "Unknown".to_string()),
+                "pip_version": pip_info.map(|p| p.version.clone()).unwrap_or_else(|| "Unknown".to_string()),
+                "status": status_str,
                 "packages": packages
             });
             println!("{}", serde_json::to_string_pretty(&response)
@@ -271,8 +323,13 @@ impl VenvHandler {
         } else {
             println!("Python Virtual Environment:");
             println!("  Path: {}", self.normalize_path_display(&venv_path));
-            println!("  Python: {}", python_version);
-            println!("  Status: Active");
+            if let Some(python) = python_info {
+                println!("  Python: {} ({})", python.version, if python.available { "available" } else { "missing" });
+            }
+            if let Some(pip) = pip_info {
+                println!("  Pip: {} ({})", pip.version, if pip.available { "available" } else { "missing" });
+            }
+            println!("  Status: {}", status_str);
             println!("  Packages: {} installed", packages.len());
             
             if !packages.is_empty() {
@@ -290,18 +347,18 @@ impl VenvHandler {
 
     /// Activate virtual environment in shell (Unix only)
     async fn shell_venv(&self) -> Result<()> {
-        let venv_path = PathBuf::from(".ppm").join("venv");
+        let venv_path = PathBuf::from(".venv");  // Changed from ".ppm/venv" to match VenvConfig default
 
         if !venv_path.exists() {
             return Err(PpmError::ValidationError(
-                "No virtual environment found at .ppm/venv".to_string()
+                "No virtual environment found at .venv".to_string()  // Updated error message
             ));
         }
 
         if cfg!(target_os = "windows") {
             println!("Shell activation is not supported on Windows.");
             println!("To activate manually, run:");
-            println!("  .ppm\\venv\\Scripts\\activate.bat");
+            println!("  .venv\\Scripts\\activate.bat");  // Updated path
             return Ok(());
         }
 
@@ -320,71 +377,6 @@ impl VenvHandler {
         println!("  deactivate");
 
         Ok(())
-    }
-
-    /// Find Python executable on system
-    fn find_python_executable(&self, version: Option<&str>) -> Result<String> {
-        let candidates = if let Some(ver) = version {
-            vec![
-                format!("python{}", ver),
-                format!("python{}.exe", ver),
-                "python".to_string(),
-                "python3".to_string(),
-            ]
-        } else {
-            vec![
-                "python".to_string(),
-                "python3".to_string(),
-                "python.exe".to_string(),
-            ]
-        };
-
-        for candidate in candidates {
-            if let Ok(output) = Command::new(&candidate)
-                .arg("--version")
-                .output()
-            {
-                if output.status.success() {
-                    let version_output = String::from_utf8_lossy(&output.stdout);
-                    if version_output.contains("Python") {
-                        // If specific version requested, verify it matches
-                        if let Some(requested_ver) = version {
-                            if !version_output.contains(requested_ver) {
-                                continue;
-                            }
-                        }
-                        return Ok(candidate);
-                    }
-                }
-            }
-        }
-
-        if let Some(ver) = version {
-            Err(PpmError::ValidationError(
-                format!("Python {} not found on system", ver)
-            ))
-        } else {
-            Err(PpmError::ValidationError(
-                "Python not found on system. Please install Python first.".to_string()
-            ))
-        }
-    }
-
-    /// Get Python version information
-    fn get_python_version(&self, python_cmd: &str) -> Result<String> {
-        let output = Command::new(python_cmd)
-            .arg("--version")
-            .output()
-            .map_err(|e| PpmError::ExecutionError(format!("Failed to get Python version: {}", e)))?;
-
-        if output.status.success() {
-            let version = String::from_utf8_lossy(&output.stdout)
-                .trim()
-                .to_string();
-            Ok(version)
-        } else {
-            Ok("Unknown".to_string())
-        }
     }
 
     /// Get Python executable path within virtual environment

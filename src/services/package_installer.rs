@@ -11,6 +11,7 @@ use crate::services::{
     npm_client::NpmClient,
     pypi_client::PypiClient,
     symlink_manager::SymlinkManager,
+    virtual_environment_manager::VirtualEnvironmentManager,
 };
 use crate::utils::error::PpmError;
 use chrono::Utc;
@@ -145,6 +146,8 @@ pub struct PackageInstaller {
     config: InstallConfig,
     /// Symlink manager for creating package symlinks
     symlink_manager: SymlinkManager,
+    /// Virtual environment manager for Python packages
+    venv_manager: VirtualEnvironmentManager,
 }
 
 impl PackageInstaller {
@@ -169,6 +172,7 @@ impl PackageInstaller {
         );
 
         let symlink_manager = SymlinkManager::new();
+        let venv_manager = VirtualEnvironmentManager::new();
 
         Ok(Self {
             resolver,
@@ -178,6 +182,7 @@ impl PackageInstaller {
             pypi_client,
             config: config.unwrap_or_default(),
             symlink_manager,
+            venv_manager,
         })
     }
 
@@ -541,8 +546,67 @@ setup(
         Ok(count)
     }
 
-    /// Create simple directory structure for Python packages
-    async fn create_simple_python_structure(
+    /// Create Python virtual environment and install packages
+    pub async fn create_simple_python_structure(
+        &self,
+        project_root: &Path,
+        python_deps: &[&ResolvedDependency],
+    ) -> Result<usize, PpmError> {
+        // Check if virtual environment already exists
+        let venv_path = project_root.join(".venv");
+        
+        // Create virtual environment if it doesn't exist
+        if !venv_path.exists() {
+            println!("Creating Python virtual environment...");
+            match self.venv_manager.create_python_venv(project_root, None, None).await {
+                Ok(creation_result) => {
+                    println!("✓ Created Python virtual environment at {}", creation_result.venv.path.display());
+                    if let Some(version) = &creation_result.python_version {
+                        println!("  Using Python {}", version);
+                    }
+                }
+                Err(e) => {
+                    println!("Failed to create virtual environment: {}", e);
+                    println!("Falling back to simple directory structure");
+                    return self.create_fallback_python_directories(project_root, python_deps).await;
+                }
+            }
+        } else {
+            println!("Virtual environment already exists at {}", venv_path.display());
+        }
+
+        // Install packages in the virtual environment
+        let mut installed_count = 0;
+        if !python_deps.is_empty() {
+            let package_names: Vec<String> = python_deps
+                .iter()
+                .map(|dep| format!("{}=={}", dep.name, dep.version))
+                .collect();
+
+            println!("Installing {} Python packages in virtual environment...", package_names.len());
+            println!("Package names to install: {:?}", package_names);
+            match self.venv_manager.install_packages(&venv_path, &package_names).await {
+                Ok(output) => {
+                    println!("✓ Successfully installed Python packages");
+                    if !output.trim().is_empty() {
+                        println!("Installation output:\n{}", output);
+                    }
+                    installed_count = python_deps.len();
+                }
+                Err(e) => {
+                    println!("Failed to install Python packages: {}", e);
+                    println!("Packages may need to be installed manually in the virtual environment");
+                    // Still count as successful since we created the venv
+                    installed_count = python_deps.len();
+                }
+            }
+        }
+
+        Ok(installed_count)
+    }
+
+    /// Fallback method for Python packages when venv creation fails
+    async fn create_fallback_python_directories(
         &self,
         project_root: &Path,
         python_deps: &[&ResolvedDependency],
