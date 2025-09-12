@@ -1,14 +1,13 @@
 use clap::Args;
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::env;
-use std::fs;
 use serde_json::json;
 
-use crate::models::project::{Project, ProjectToml};
+use crate::models::project::Project;
 use crate::models::ecosystem::Ecosystem;
 use crate::utils::error::{PpmError, Result};
+use crate::utils::config::ConfigParser;
 
 /// Run project scripts
 #[derive(Debug, Args)]
@@ -60,21 +59,7 @@ impl RunCommand {
 
     /// Load project configuration
     fn load_project(&self) -> Result<Project> {
-        let project_path = PathBuf::from("project.toml");
-        if !project_path.exists() {
-            return Err(PpmError::ConfigError(
-                "No project.toml found (run 'ppm init' first)".to_string()
-            ));
-        }
-
-        let content = fs::read_to_string("project.toml")
-            .map_err(|e| PpmError::IoError(e))?;
-        
-        let project_toml: ProjectToml = toml::from_str(&content)
-            .map_err(|e| PpmError::ConfigError(format!("Invalid project.toml: {}", e)))?;
-        
-        let project = Project::from(project_toml);
-        Ok(project)
+        ConfigParser::load_project_config("project.toml")
     }
 
     /// List all available scripts

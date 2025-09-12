@@ -122,8 +122,8 @@ impl LockFile {
 
     /// Get current timestamp in RFC 3339 format
     fn current_timestamp() -> String {
-        // For now, return a placeholder. In a real implementation, this would use chrono
-        "2025-09-11T12:00:00Z".to_string()
+        use chrono::Utc;
+        Utc::now().to_rfc3339()
     }
 
     /// Add resolved dependencies for an ecosystem

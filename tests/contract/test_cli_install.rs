@@ -399,5 +399,5 @@ react = "^18.0.0"
     // Verify expected structure
     assert!(parsed["version"].is_number());
     assert!(parsed["project_hash"].is_string());
-    assert!(parsed["dependencies"].is_object());
+    assert!(parsed["resolved_dependencies"].is_object());
 }

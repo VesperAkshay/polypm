@@ -762,6 +762,77 @@ setup(
 
         Ok(())
     }
+
+    /// Create JavaScript node_modules structure and install real packages
+    pub async fn create_simple_javascript_structure(
+        &self,
+        project_root: &Path,
+        js_deps: &[&ResolvedDependency],
+    ) -> Result<usize, PpmError> {
+        let node_modules_path = project_root.join("node_modules");
+        fs::create_dir_all(&node_modules_path).await?;
+
+        let mut installed_count = 0;
+        
+        for dep in js_deps {
+            println!("Installing {} {}...", dep.name, dep.version);
+            
+            // Download the actual package
+            let tarball_data = self.download_npm_package(dep).await?;
+            
+            // Create directory for this package
+            let dep_path = node_modules_path.join(&dep.name);
+            fs::create_dir_all(&dep_path).await?;
+            
+            // Extract tarball to the package directory
+            self.extract_npm_tarball(&tarball_data, &dep_path).await?;
+            
+            installed_count += 1;
+        }
+
+        Ok(installed_count)
+    }
+
+    /// Extract npm tarball to target directory
+    async fn extract_npm_tarball(&self, tarball_data: &[u8], target_dir: &Path) -> Result<(), PpmError> {
+        use std::io::Cursor;
+        use flate2::read::GzDecoder;
+        use tar::Archive;
+        
+        // Create a cursor from the tarball data
+        let cursor = Cursor::new(tarball_data);
+        
+        // Decompress gzip
+        let decoder = GzDecoder::new(cursor);
+        
+        // Create tar archive
+        let mut archive = Archive::new(decoder);
+        
+        // Extract entries
+        for entry in archive.entries().map_err(|e| PpmError::IoError(e))? {
+            let mut entry = entry.map_err(|e| PpmError::IoError(e))?;
+            let path = entry.path().map_err(|e| PpmError::IoError(e))?;
+            
+            // Skip the package/ prefix that npm tarballs have
+            let relative_path = if let Ok(stripped) = path.strip_prefix("package") {
+                stripped
+            } else {
+                path.as_ref()
+            };
+            
+            let target_path = target_dir.join(relative_path);
+            
+            // Ensure parent directory exists
+            if let Some(parent) = target_path.parent() {
+                fs::create_dir_all(parent).await?;
+            }
+            
+            // Extract the file
+            entry.unpack(&target_path).map_err(|e| PpmError::IoError(e))?;
+        }
+        
+        Ok(())
+    }
 }
 
 #[cfg(test)]

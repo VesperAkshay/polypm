@@ -1,7 +1,8 @@
 use clap::Args;
 use std::fs;
 use serde::{Deserialize, Serialize};
-use crate::utils::error::PpmError;
+use crate::utils::error::{PpmError, Result};
+use crate::utils::config::ConfigParser;
 
 /// Initialize a new polyglot project with unified configuration
 #[derive(Debug, Args)]
@@ -43,7 +44,7 @@ pub struct InitResponse {
 
 impl InitCommand {
     /// Execute the init command
-    pub async fn run(&self) -> Result<(), PpmError> {
+    pub async fn run(&self) -> Result<()> {
         let current_dir = std::env::current_dir()
             .map_err(|e| PpmError::IoError(e))?;
         
@@ -126,7 +127,7 @@ impl InitCommand {
 }
 
 /// Validate project name according to our rules
-fn validate_project_name(name: &str) -> Result<(), PpmError> {
+fn validate_project_name(name: &str) -> Result<()> {
     if name.is_empty() {
         return Err(PpmError::ValidationError(
             "Invalid project name '' (must be valid identifier)".to_string()
@@ -151,7 +152,7 @@ fn validate_project_name(name: &str) -> Result<(), PpmError> {
 }
 
 /// Validate version according to semver rules (simplified)
-fn validate_version(version: &str) -> Result<(), PpmError> {
+fn validate_version(version: &str) -> Result<()> {
     // Basic semver validation: MAJOR.MINOR.PATCH
     let parts: Vec<&str> = version.split('.').collect();
     
@@ -174,7 +175,7 @@ fn validate_version(version: &str) -> Result<(), PpmError> {
 }
 
 /// Generate project.toml content
-fn generate_project_toml(name: &str, version: &str, ecosystems: &[String]) -> Result<String, PpmError> {
+fn generate_project_toml(name: &str, version: &str, ecosystems: &[String]) -> Result<String> {
     let mut content = String::new();
     
     // Project section

@@ -7,10 +7,10 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
-use sha2::{Sha256, Digest};
 use crate::utils::error::{PpmError, Result};
-use crate::models::project::{Project, ProjectToml};
-use crate::models::lock_file::LockFile;
+use crate::utils::config::ConfigParser;
+use crate::utils::lock_file::LockFileManager;
+use crate::models::project::Project;
 use crate::models::ecosystem::Ecosystem;
 use crate::models::dependency::Dependency;
 use crate::models::resolved_dependency::ResolvedDependency;
@@ -93,7 +93,7 @@ impl InstallCommand {
         };
 
         // Install packages
-        let install_stats = self.install_packages(&project, &resolved_deps).await?;
+        let install_stats = self.install_packages(&resolved_deps).await?;
 
         // Generate/update lock file
         let lock_file_path = self.generate_lock_file(&project, &resolved_deps).await?;
@@ -110,18 +110,7 @@ impl InstallCommand {
     }
 
     async fn load_project(&self) -> Result<Project> {
-        let content = fs::read_to_string("project.toml")
-            .map_err(|e| PpmError::IoError(e))?;
-        
-        let project_toml: ProjectToml = toml::from_str(&content)
-            .map_err(|e| PpmError::ConfigError(format!("Invalid project.toml: {}", e)))?;
-        
-        let project = Project::from(project_toml);
-        
-        project.validate()
-            .map_err(|e| PpmError::ValidationError(e))?;
-            
-        Ok(project)
+        ConfigParser::load_project_config("project.toml")
     }
 
     async fn install_specific_packages(&self, project: &mut Project) -> Result<()> {
@@ -197,34 +186,12 @@ impl InstallCommand {
     }
 
     async fn save_project(&self, project: &Project) -> Result<()> {
-        let project_toml = ProjectToml::from(project.clone());
-        let toml_content = toml::to_string_pretty(&project_toml)
-            .map_err(|e| PpmError::ConfigError(format!("Failed to serialize project: {}", e)))?;
-        
-        fs::write("project.toml", toml_content)
-            .map_err(|e| PpmError::IoError(e))?;
-        
-        Ok(())
+        ConfigParser::save_project_config(project, "project.toml")
     }
 
     async fn resolve_from_lock_file(&self) -> Result<Vec<ResolvedDependency>> {
-        if !Path::new("ppm.lock").exists() {
-            return Err(PpmError::ConfigError(
-                "No ppm.lock file found (run without --frozen first)".to_string()
-            ));
-        }
-
-        let content = fs::read_to_string("ppm.lock")?;
-        let lock_file: LockFile = serde_json::from_str(&content)
-            .map_err(|e| PpmError::ConfigError(format!("Invalid ppm.lock: {}", e)))?;
-
-        // Convert lock file entries to resolved dependencies
-        let mut resolved = Vec::new();
-        for (_ecosystem, deps) in &lock_file.resolved_dependencies {
-            resolved.extend(deps.clone());
-        }
-        
-        Ok(resolved)
+        let lock_manager = LockFileManager::new();
+        lock_manager.get_resolved_dependencies()
     }
 
     async fn resolve_dependencies(&self, project: &Project) -> Result<Vec<ResolvedDependency>> {
@@ -315,7 +282,7 @@ impl InstallCommand {
         Ok(ecosystems)
     }
 
-    async fn install_packages(&self, project: &Project, resolved_deps: &[ResolvedDependency]) -> Result<HashMap<String, InstallStats>> {
+    async fn install_packages(&self, resolved_deps: &[ResolvedDependency]) -> Result<HashMap<String, InstallStats>> {
         if self.offline {
             // Check if all packages are available offline
             for dep in resolved_deps {
@@ -370,11 +337,13 @@ impl InstallCommand {
                     println!("  Updated Python virtual environment");
                 }
                 Ecosystem::JavaScript => {
-                    // For JavaScript, simulate for now
-                    for dep in &deps {
-                        self.simulate_package_installation(dep, symlinks_created).await?;
+                    // Use PackageInstaller to create JavaScript node_modules and install packages
+                    let current_dir = std::env::current_dir()?;
+                    let installed_count = installer.create_simple_javascript_structure(&current_dir, &deps).await?;
+                    println!("  JavaScript packages: {} installed", installed_count);
+                    if !self.no_symlinks {
+                        println!("  Created symlinks");
                     }
-                    println!("  JavaScript packages: {} installed", packages_count);
                 }
             }
             
@@ -394,15 +363,18 @@ impl InstallCommand {
     }
 
     async fn ensure_ecosystem_directories(&self, ecosystem: &Ecosystem) -> Result<()> {
-        let base_dir = Path::new(".ppm");
-        fs::create_dir_all(base_dir)?;
+        // Only create the global store directory for package caching
+        let global_store_dir = Path::new(".ppm").join("global");
+        fs::create_dir_all(&global_store_dir)?;
         
+        // The actual package directories (node_modules, .venv) are created 
+        // by the PackageInstaller when needed
         match ecosystem {
             Ecosystem::JavaScript => {
-                fs::create_dir_all(base_dir.join("node_modules"))?;
+                // node_modules will be created by create_simple_javascript_structure
             }
             Ecosystem::Python => {
-                fs::create_dir_all(base_dir.join("venv"))?;
+                // .venv will be created by create_simple_python_structure
             }
         }
         
@@ -429,37 +401,9 @@ impl InstallCommand {
     }
 
     async fn generate_lock_file(&self, project: &Project, resolved_deps: &[ResolvedDependency]) -> Result<String> {
-        // Calculate project hash (simplified)
-        let project_toml = ProjectToml::from(project.clone());
-        let project_content = toml::to_string(&project_toml)
-            .map_err(|e| PpmError::ConfigError(format!("Failed to serialize project: {}", e)))?;
-        let mut hasher = Sha256::new();
-        hasher.update(project_content.as_bytes());
-        let project_hash = format!("{:x}", hasher.finalize());
-        
-        // Create lock file
-        let mut lock_file = LockFile::new(project_hash, "1.0.0".to_string());
-        
-        // Group resolved dependencies by ecosystem
-        let mut by_ecosystem: HashMap<Ecosystem, Vec<ResolvedDependency>> = HashMap::new();
-        for dep in resolved_deps {
-            by_ecosystem.entry(dep.ecosystem).or_default().push(dep.clone());
-        }
-        
-        for (ecosystem, deps) in by_ecosystem {
-            lock_file.add_ecosystem_dependencies(ecosystem, deps);
-        }
-        
-        // Validate and save
-        lock_file.validate()
-            .map_err(|e| PpmError::ValidationError(format!("Invalid lock file: {}", e)))?;
-        
-        let lock_content = serde_json::to_string_pretty(&lock_file)
-            .map_err(|e| PpmError::ConfigError(format!("Failed to serialize lock file: {}", e)))?;
-        
-        fs::write("ppm.lock", &lock_content)?;
-        
-        Ok("ppm.lock".to_string())
+        let lock_manager = LockFileManager::new();
+        lock_manager.update_lock_file(project, resolved_deps)?;
+        Ok(lock_manager.lock_file_path().to_string_lossy().to_string())
     }
 
     fn output_json_response(&self, duration_ms: u64, stats: &HashMap<String, InstallStats>, lock_file: &str) -> Result<()> {
