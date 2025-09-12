@@ -304,7 +304,6 @@ impl DependencyResolver {
         match (dependency.ecosystem, dependency.name.as_str()) {
             (Ecosystem::JavaScript, "react") => true,
             (Ecosystem::JavaScript, "lodash") => true,
-            (Ecosystem::JavaScript, "express") => true,
             (Ecosystem::Python, "flask") => true,
             (Ecosystem::Python, "django") => true,
             (Ecosystem::Python, "requests") => true,
@@ -339,10 +338,9 @@ impl DependencyResolver {
                     .await
                     .map_err(ResolverError::NpmError)?;
                 
-                // Use the latest version for dependency resolution
-                let default_version = "1.0.0".to_string();
-                let latest_version = npm_info.dist_tags.get("latest").unwrap_or(&default_version);
-                let version_info = npm_info.versions.get(latest_version)
+                // Resolve the specific version requested, not the latest
+                let resolved_version = self.resolve_real_version(dependency).await?;
+                let version_info = npm_info.versions.get(&resolved_version)
                     .ok_or_else(|| ResolverError::PackageNotFound {
                         package: dependency.name.clone(),
                         ecosystem: dependency.ecosystem,
@@ -353,7 +351,7 @@ impl DependencyResolver {
                     "packages/{}/{}/{}",
                     dependency.ecosystem.to_string().to_lowercase(),
                     dependency.name,
-                    latest_version
+                    resolved_version
                 ));
                 
                 self.npm_client.npm_to_package(version_info, store_path)

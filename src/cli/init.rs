@@ -343,9 +343,12 @@ mod tests {
         // Change to temp directory
         std::env::set_current_dir(temp_dir.path()).unwrap();
         
-        // Create existing project.toml
-        let config_path = temp_dir.path().join("project.toml");
+        // Create existing project.toml in the current working directory
+        let config_path = std::env::current_dir().unwrap().join("project.toml");
         fs::write(&config_path, "existing content").unwrap();
+        
+        // Verify the file exists before running the command
+        assert!(config_path.exists(), "project.toml should exist before test");
         
         let cmd = InitCommand {
             name: Some("test-app".to_string()),
@@ -357,7 +360,7 @@ mod tests {
         };
         
         let result = cmd.run().await;
-        assert!(result.is_err());
+        assert!(result.is_err(), "Expected error when project.toml already exists");
         
         if let Err(PpmError::ValidationError(msg)) = result {
             assert!(msg.contains("already exists"));

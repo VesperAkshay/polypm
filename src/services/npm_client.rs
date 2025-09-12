@@ -60,9 +60,12 @@ pub struct NpmVersionInfo {
     /// Package author
     pub author: Option<NpmAuthor>,
     /// Package license
-    pub license: Option<String>,
+    pub license: Option<serde_json::Value>, // Can be string or object
     /// Package keywords
     pub keywords: Option<Vec<String>>,
+    /// Ignore any unknown fields
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
 }
 
 /// Distribution information for a package version
@@ -80,6 +83,9 @@ pub struct NpmDistInfo {
     /// Unpacked size in bytes
     #[serde(rename = "unpackedSize")]
     pub unpacked_size: Option<u64>,
+    /// Ignore any unknown fields
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
 }
 
 /// Author information from npm registry
@@ -271,37 +277,216 @@ impl NpmClient {
     
     /// Resolve version specification to exact version
     pub async fn resolve_version(&self, package_name: &str, version_spec: &str) -> Result<String, NpmError> {
-        // For now, implement basic version resolution
-        // In a full implementation, this would handle semver ranges
-        
         if version_spec == "latest" || version_spec == "*" {
             return self.get_latest_version(package_name).await;
         }
         
-        // If version_spec is exact version, verify it exists
         let versions = self.get_available_versions(package_name).await?;
         
-        // Handle common npm version prefixes
-        let clean_version = version_spec.trim_start_matches('^')
-                                      .trim_start_matches('~')
-                                      .trim_start_matches(">=")
-                                      .trim_start_matches('>')
-                                      .trim_start_matches("<=")
-                                      .trim_start_matches('<')
-                                      .trim_start_matches('=');
+        // Handle exact version match first
+        if versions.contains(&version_spec.to_string()) {
+            return Ok(version_spec.to_string());
+        }
         
-        if versions.contains(&clean_version.to_string()) {
-            Ok(clean_version.to_string())
+        // Handle complex version ranges like ">= 2.1.2 < 3"
+        if version_spec.contains(">=") && version_spec.contains("<") {
+            return self.resolve_range_version(&versions, version_spec, package_name);
+        }
+        
+        // Handle simple version prefixes
+        if let Some(clean_version) = self.parse_simple_version_spec(version_spec) {
+            if versions.contains(&clean_version) {
+                return Ok(clean_version);
+            }
+            
+            // For caret/tilde ranges, find compatible versions
+            if version_spec.starts_with('^') {
+                return self.find_caret_compatible(&versions, &clean_version, package_name);
+            } else if version_spec.starts_with('~') {
+                return self.find_tilde_compatible(&versions, &clean_version, package_name);
+            } else {
+                // Try prefix matching for partial versions
+                for version in versions.iter().rev() {
+                    if version.starts_with(&clean_version) {
+                        return Ok(version.clone());
+                    }
+                }
+            }
+        }
+        
+        Err(NpmError::VersionNotFound(package_name.to_string(), version_spec.to_string()))
+    }
+    
+    /// Parse simple version specifications by removing common prefixes
+    fn parse_simple_version_spec(&self, version_spec: &str) -> Option<String> {
+        let cleaned = version_spec.trim_start_matches('^')
+                                 .trim_start_matches('~')
+                                 .trim_start_matches(">=")
+                                 .trim_start_matches('>')
+                                 .trim_start_matches("<=")
+                                 .trim_start_matches('<')
+                                 .trim_start_matches('=')
+                                 .trim();
+        
+        if cleaned.is_empty() {
+            None
         } else {
-            // Find best matching version (simplified semver logic)
-            for version in versions.iter().rev() {
-                if version.starts_with(clean_version) {
-                    return Ok(version.clone());
+            Some(cleaned.to_string())
+        }
+    }
+    
+    /// Resolve complex version ranges like ">= 2.1.2 < 3"
+    fn resolve_range_version(&self, versions: &[String], version_spec: &str, package_name: &str) -> Result<String, NpmError> {
+        // Parse the range specification
+        let parts: Vec<&str> = version_spec.split_whitespace().collect();
+        
+        let mut min_version = None;
+        let mut max_version = None;
+        let mut min_inclusive = false;
+        let mut max_inclusive = false;
+        
+        let mut i = 0;
+        while i < parts.len() {
+            match parts[i] {
+                ">=" => {
+                    if i + 1 < parts.len() {
+                        min_version = Some(parts[i + 1]);
+                        min_inclusive = true;
+                        i += 2;
+                    } else {
+                        i += 1;
+                    }
+                }
+                ">" => {
+                    if i + 1 < parts.len() {
+                        min_version = Some(parts[i + 1]);
+                        min_inclusive = false;
+                        i += 2;
+                    } else {
+                        i += 1;
+                    }
+                }
+                "<=" => {
+                    if i + 1 < parts.len() {
+                        max_version = Some(parts[i + 1]);
+                        max_inclusive = true;
+                        i += 2;
+                    } else {
+                        i += 1;
+                    }
+                }
+                "<" => {
+                    if i + 1 < parts.len() {
+                        max_version = Some(parts[i + 1]);
+                        max_inclusive = false;
+                        i += 2;
+                    } else {
+                        i += 1;
+                    }
+                }
+                _ => i += 1,
+            }
+        }
+        
+        // Find the highest version that satisfies the range
+        let mut best_version = None;
+        for version in versions.iter().rev() {
+            let mut satisfies = true;
+            
+            // Check minimum version constraint
+            if let Some(min_ver) = min_version {
+                let cmp = self.compare_versions(version, min_ver);
+                if min_inclusive {
+                    if cmp < 0 { satisfies = false; }
+                } else {
+                    if cmp <= 0 { satisfies = false; }
                 }
             }
             
-            Err(NpmError::VersionNotFound(package_name.to_string(), version_spec.to_string()))
+            // Check maximum version constraint  
+            if let Some(max_ver) = max_version {
+                let cmp = self.compare_versions(version, max_ver);
+                if max_inclusive {
+                    if cmp > 0 { satisfies = false; }
+                } else {
+                    if cmp >= 0 { satisfies = false; }
+                }
+            }
+            
+            if satisfies {
+                best_version = Some(version.clone());
+                break; // Take the first (highest) matching version
+            }
         }
+        
+        best_version.ok_or_else(|| NpmError::VersionNotFound(package_name.to_string(), version_spec.to_string()))
+    }
+    
+    /// Compare two version strings (simplified semver comparison)
+    fn compare_versions(&self, version1: &str, version2: &str) -> i32 {
+        let v1_parts: Vec<u32> = version1.split('.').filter_map(|s| s.parse().ok()).collect();
+        let v2_parts: Vec<u32> = version2.split('.').filter_map(|s| s.parse().ok()).collect();
+        
+        let max_len = v1_parts.len().max(v2_parts.len());
+        
+        for i in 0..max_len {
+            let v1_part = v1_parts.get(i).copied().unwrap_or(0);
+            let v2_part = v2_parts.get(i).copied().unwrap_or(0);
+            
+            if v1_part < v2_part {
+                return -1;
+            } else if v1_part > v2_part {
+                return 1;
+            }
+        }
+        
+        0
+    }
+    
+    /// Find version compatible with caret range (^1.2.3 allows >=1.2.3 <2.0.0)
+    fn find_caret_compatible(&self, versions: &[String], base_version: &str, package_name: &str) -> Result<String, NpmError> {
+        let base_parts: Vec<u32> = base_version.split('.').filter_map(|s| s.parse().ok()).collect();
+        if base_parts.is_empty() {
+            return Err(NpmError::VersionNotFound(package_name.to_string(), format!("^{}", base_version)));
+        }
+        
+        let major = base_parts[0];
+        
+        for version in versions.iter().rev() {
+            let version_parts: Vec<u32> = version.split('.').filter_map(|s| s.parse().ok()).collect();
+            if version_parts.is_empty() { continue; }
+            
+            // Same major version and >= base version
+            if version_parts[0] == major && self.compare_versions(version, base_version) >= 0 {
+                return Ok(version.clone());
+            }
+        }
+        
+        Err(NpmError::VersionNotFound(package_name.to_string(), format!("^{}", base_version)))
+    }
+    
+    /// Find version compatible with tilde range (~1.2.3 allows >=1.2.3 <1.3.0)
+    fn find_tilde_compatible(&self, versions: &[String], base_version: &str, package_name: &str) -> Result<String, NpmError> {
+        let base_parts: Vec<u32> = base_version.split('.').filter_map(|s| s.parse().ok()).collect();
+        if base_parts.len() < 2 {
+            return Err(NpmError::VersionNotFound(package_name.to_string(), format!("~{}", base_version)));
+        }
+        
+        let major = base_parts[0];
+        let minor = base_parts[1];
+        
+        for version in versions.iter().rev() {
+            let version_parts: Vec<u32> = version.split('.').filter_map(|s| s.parse().ok()).collect();
+            if version_parts.len() < 2 { continue; }
+            
+            // Same major.minor and >= base version
+            if version_parts[0] == major && version_parts[1] == minor && 
+               self.compare_versions(version, base_version) >= 0 {
+                return Ok(version.clone());
+            }
+        }
+        
+        Err(NpmError::VersionNotFound(package_name.to_string(), format!("~{}", base_version)))
     }
     
     /// Convert NPM package information to our Package model
@@ -309,7 +494,9 @@ impl NpmClient {
         // Create package metadata
         let mut metadata = crate::models::package::PackageMetadata::default();
         metadata.description = npm_info.description.clone();
-        metadata.license = npm_info.license.clone();
+        metadata.license = npm_info.license.as_ref()
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
         metadata.keywords = npm_info.keywords.clone().unwrap_or_default();
         
         // Extract author information
@@ -325,7 +512,22 @@ impl NpmClient {
                 }
             });
         }
-        
+
+        // Handle license which can be string or object
+        if let Some(license) = &npm_info.license {
+            metadata.license = match license {
+                serde_json::Value::String(s) => Some(s.clone()),
+                serde_json::Value::Object(obj) => {
+                    // Try to extract license from object (e.g., {"type": "MIT"})
+                    obj.get("type")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                        .or_else(|| Some("Unknown".to_string()))
+                }
+                _ => Some("Unknown".to_string()),
+            };
+        }
+
         // Use SHA-1 from npm, but we'll need to convert it to SHA-256 for our system
         // For now, use the shasum as-is (this would need proper handling in production)
         let hash = npm_info.dist.shasum.clone();
@@ -650,6 +852,7 @@ mod tests {
                 integrity: Some("sha512-...".to_string()),
                 file_count: Some(16),
                 unpacked_size: Some(214819),
+                extra: HashMap::new(),
             },
             dependencies: Some([
                 ("body-parser".to_string(), "1.20.1".to_string()),
@@ -659,8 +862,9 @@ mod tests {
                 ("jest".to_string(), "^29.0.0".to_string()),
             ].into()),
             author: Some(NpmAuthor::String("TJ Holowaychuk".to_string())),
-            license: Some("MIT".to_string()),
+            license: Some(serde_json::Value::String("MIT".to_string())),
             keywords: Some(vec!["web".to_string(), "framework".to_string()]),
+            extra: HashMap::new(),
         };
         
         let store_path = PathBuf::from("/store/packages/abc123");
@@ -752,12 +956,14 @@ mod tests {
                 integrity: Some("sha512-...".to_string()),
                 file_count: Some(10),
                 unpacked_size: Some(1000),
+                extra: HashMap::new(),
             },
             dependencies: None,
             dev_dependencies: None,
             author: None,
-            license: Some("MIT".to_string()),
+            license: Some(serde_json::Value::String("MIT".to_string())),
             keywords: None,
+            extra: HashMap::new(),
         }
     }
     

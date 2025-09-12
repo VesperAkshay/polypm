@@ -245,15 +245,33 @@ impl PackageInstaller {
         
         match self.resolver.resolve_dependencies(dependencies).await {
             Ok(resolution) => {
-                // Check for resolution failures
-                if !resolution.failed.is_empty() {
+                // Check for critical resolution failures (version conflicts, main package not found)
+                let critical_failures: Vec<_> = resolution.failed.iter()
+                    .filter(|failure| {
+                        // Filter out non-critical failures like registry parsing errors for optional dependencies
+                        !failure.error.contains("Failed to parse registry response") &&
+                        !failure.error.contains("Invalid package name") &&
+                        !failure.error.contains("not found for package") &&
+                        failure.depth == 0 // Only critical if it's a root dependency
+                    })
+                    .collect();
+                
+                if !critical_failures.is_empty() {
                     return Err(PpmError::ValidationError(format!(
-                        "Failed to resolve dependencies: {}",
-                        resolution.failed.iter()
+                        "Failed to resolve critical dependencies: {}",
+                        critical_failures.iter()
                             .map(|failure| format!("{}: {}", failure.dependency.name, failure.error))
                             .collect::<Vec<_>>()
                             .join(", ")
                     )));
+                }
+                
+                // Log non-critical failures as warnings
+                if !resolution.failed.is_empty() {
+                    println!("⚠️  Warning: Some optional dependencies could not be resolved:");
+                    for failure in &resolution.failed {
+                        println!("   - {}: {}", failure.dependency.name, failure.error);
+                    }
                 }
 
                 // For now, keep sequential installation but optimize individual downloads

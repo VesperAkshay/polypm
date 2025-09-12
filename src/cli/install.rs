@@ -249,7 +249,31 @@ impl InstallCommand {
             .map_err(|e| PpmError::ConfigError(format!("Cannot resolve dependencies: {}", e)))?;
         
         if !resolution_result.failed.is_empty() {
-            return Err(PpmError::ConfigError("Cannot resolve dependencies due to version conflicts".to_string()));
+            // Filter out non-critical failures
+            let critical_failures: Vec<_> = resolution_result.failed.iter()
+                .filter(|failure| {
+                    // Only consider failures for root dependencies as critical
+                    failure.depth == 0
+                })
+                .collect();
+                
+            if !critical_failures.is_empty() {
+                return Err(PpmError::ConfigError(format!(
+                    "Cannot resolve critical dependencies: {}",
+                    critical_failures.iter()
+                        .map(|failure| format!("{}: {}", failure.dependency.name, failure.error))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )));
+            }
+            
+            // Log warnings for non-critical failures
+            if !resolution_result.failed.is_empty() {
+                println!("⚠️  Warning: Some optional dependencies could not be resolved:");
+                for failure in &resolution_result.failed {
+                    println!("   - {}: {}", failure.dependency.name, failure.error);
+                }
+            }
         }
         
         Ok(resolution_result.resolved)

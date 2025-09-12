@@ -65,9 +65,9 @@ impl Ecosystem {
                         "npm package names must be 214 characters or less".to_string(),
                     ));
                 }
-                if !name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '/' || c == '@') {
+                if !name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '/' || c == '@' || c == '.') {
                     return Err(EcosystemError::InvalidPackageName(
-                        "npm package names can only contain lowercase letters, digits, hyphens, slashes, and @".to_string(),
+                        "npm package names can only contain lowercase letters, digits, hyphens, slashes, @, and periods".to_string(),
                     ));
                 }
             }

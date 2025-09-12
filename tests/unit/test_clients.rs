@@ -181,6 +181,7 @@ mod npm_client_tests {
                 integrity: Some("sha512-abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890".to_string()),
                 file_count: Some(10),
                 unpacked_size: Some(50000),
+                extra: HashMap::new(),
             },
             dependencies: Some({
                 let mut deps = HashMap::new();
@@ -197,8 +198,9 @@ mod npm_client_tests {
                 email: Some("test@example.com".to_string()),
                 url: None,
             }),
-            license: Some("MIT".to_string()),
+            license: Some(serde_json::Value::String("MIT".to_string())),
             keywords: Some(vec!["test".to_string(), "package".to_string()]),
+            extra: HashMap::new(),
         };
         
         let store_path = std::path::PathBuf::from("/tmp/test-store");
@@ -248,12 +250,14 @@ mod npm_client_tests {
                         integrity: None,
                         file_count: None,
                         unpacked_size: None,
+                        extra: HashMap::new(),
                     },
                     dependencies: None,
                     dev_dependencies: None,
                     author: None,
                     license: None,
                     keywords: None,
+                    extra: HashMap::new(),
                 });
                 versions
             },
