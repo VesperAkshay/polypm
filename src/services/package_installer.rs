@@ -10,6 +10,7 @@ use crate::services::{
     dependency_resolver::DependencyResolver,
     npm_client::NpmClient,
     pypi_client::PypiClient,
+    symlink_manager::SymlinkManager,
 };
 use crate::utils::error::PpmError;
 use chrono::Utc;
@@ -142,6 +143,8 @@ pub struct PackageInstaller {
     pypi_client: PypiClient,
     /// Installation configuration
     config: InstallConfig,
+    /// Symlink manager for creating package symlinks
+    symlink_manager: SymlinkManager,
 }
 
 impl PackageInstaller {
@@ -165,6 +168,8 @@ impl PackageInstaller {
             global_store.clone(),
         );
 
+        let symlink_manager = SymlinkManager::new();
+
         Ok(Self {
             resolver,
             global_store,
@@ -172,6 +177,7 @@ impl PackageInstaller {
             npm_client,
             pypi_client,
             config: config.unwrap_or_default(),
+            symlink_manager,
         })
     }
 
@@ -248,9 +254,9 @@ impl PackageInstaller {
                     }
                 }
 
-                // Create symlinks for the project (simplified)
+                // Create symlinks for the project
                 if result.failed.is_empty() {
-                    match self.create_simple_symlinks(project, project_root, &resolution.resolved).await {
+                    match self.create_project_symlinks(project, project_root, &resolution.resolved).await {
                         Ok(count) => result.symlinks_created = count,
                         Err(e) => {
                             result.failed.push(("symlink_creation".to_string(), e.to_string()));
@@ -458,67 +464,115 @@ setup(
         Ok(())
     }
 
-    /// Create simplified symlinks for project dependencies
-    async fn create_simple_symlinks(
+    /// Create symlinks for project dependencies using SymlinkManager
+    async fn create_project_symlinks(
         &mut self,
         _project: &Project,
         project_root: &Path,
         resolved_deps: &[ResolvedDependency],
     ) -> Result<usize, PpmError> {
-        let mut symlink_count = 0;
+        let mut total_symlinks = 0;
 
-        // Create basic directories for each ecosystem
-        for ecosystem in [Ecosystem::JavaScript, Ecosystem::Python] {
-            let ecosystem_deps: Vec<_> = resolved_deps
-                .iter()
-                .filter(|dep| dep.ecosystem == ecosystem)
-                .collect();
+        // Create JavaScript symlinks using SymlinkManager
+        let js_deps: Vec<_> = resolved_deps
+            .iter()
+            .filter(|dep| dep.ecosystem == Ecosystem::JavaScript)
+            .collect();
 
-            if ecosystem_deps.is_empty() {
-                continue;
-            }
-
-            let symlink_path = match ecosystem {
-                Ecosystem::JavaScript => project_root.join("node_modules"),
-                Ecosystem::Python => project_root.join(".venv").join("lib").join("site-packages"),
-            };
-
-            // Create the base directory
-            fs::create_dir_all(&symlink_path).await?;
-
-            // For each dependency, create a placeholder directory structure
-            for dep in ecosystem_deps {
-                let dep_path = symlink_path.join(&dep.name);
-                fs::create_dir_all(&dep_path).await?;
-                
-                // Create a simple marker file with package info
-                let marker_path = dep_path.join("package_info.txt");
-                let package_info = format!(
-                    "Name: {}\nVersion: {}\nEcosystem: {}\nInstalled: {}\n",
-                    dep.name,
-                    dep.version,
-                    dep.ecosystem,
-                    Utc::now().format("%Y-%m-%d %H:%M:%S UTC")
-                );
-                fs::write(&marker_path, package_info).await?;
-                
-                // For JavaScript packages, create a basic package.json
-                if ecosystem == Ecosystem::JavaScript {
-                    let package_json = serde_json::json!({
-                        "name": dep.name,
-                        "version": dep.version,
-                        "description": "Installed via PPM",
-                        "main": "index.js"
-                    });
-                    let package_json_path = dep_path.join("package.json");
-                    fs::write(&package_json_path, serde_json::to_string_pretty(&package_json).unwrap()).await?;
+        if !js_deps.is_empty() {
+            let js_deps_owned: Vec<ResolvedDependency> = js_deps.iter().map(|dep| (*dep).clone()).collect();
+            match self.symlink_manager.create_javascript_symlinks(
+                project_root,
+                &js_deps_owned,
+                &self.global_store.root_path
+            ).await {
+                Ok(structure) => {
+                    total_symlinks += structure.link_count();
+                    println!("Created {} JavaScript symlinks", structure.link_count());
                 }
-                
-                symlink_count += 1;
+                Err(e) => {
+                    println!("Failed to create JavaScript symlinks: {}", e);
+                    // For now, fall back to creating simple directories
+                    total_symlinks += self.create_fallback_directories(project_root, &js_deps).await?;
+                }
             }
         }
 
-        Ok(symlink_count)
+        // Handle Python packages (simplified for now - no real symlinks yet)
+        let python_deps: Vec<_> = resolved_deps
+            .iter()
+            .filter(|dep| dep.ecosystem == Ecosystem::Python)
+            .collect();
+
+        if !python_deps.is_empty() {
+            total_symlinks += self.create_simple_python_structure(project_root, &python_deps).await?;
+        }
+
+        Ok(total_symlinks)
+    }
+
+    /// Fallback method to create simple directories when symlinks fail
+    async fn create_fallback_directories(
+        &self,
+        project_root: &Path,
+        js_deps: &[&ResolvedDependency],
+    ) -> Result<usize, PpmError> {
+        let node_modules_path = project_root.join("node_modules");
+        fs::create_dir_all(&node_modules_path).await?;
+
+        let mut count = 0;
+        for dep in js_deps {
+            let dep_path = node_modules_path.join(&dep.name);
+            fs::create_dir_all(&dep_path).await?;
+            
+            // Create a basic package.json
+            let package_json = serde_json::json!({
+                "name": dep.name,
+                "version": dep.version,
+                "description": "Installed via PPM",
+                "main": "index.js"
+            });
+            let package_json_path = dep_path.join("package.json");
+            fs::write(&package_json_path, serde_json::to_string_pretty(&package_json).unwrap()).await?;
+            
+            count += 1;
+        }
+
+        Ok(count)
+    }
+
+    /// Create simple directory structure for Python packages
+    async fn create_simple_python_structure(
+        &self,
+        project_root: &Path,
+        python_deps: &[&ResolvedDependency],
+    ) -> Result<usize, PpmError> {
+        let site_packages_path = project_root
+            .join(".venv")
+            .join("lib")
+            .join("site-packages");
+        fs::create_dir_all(&site_packages_path).await?;
+
+        let mut count = 0;
+        for dep in python_deps {
+            let dep_path = site_packages_path.join(&dep.name);
+            fs::create_dir_all(&dep_path).await?;
+            
+            // Create a simple marker file
+            let marker_path = dep_path.join("package_info.txt");
+            let package_info = format!(
+                "Name: {}\nVersion: {}\nEcosystem: {}\nInstalled: {}\n",
+                dep.name,
+                dep.version,
+                dep.ecosystem,
+                Utc::now().format("%Y-%m-%d %H:%M:%S UTC")
+            );
+            fs::write(&marker_path, package_info).await?;
+            
+            count += 1;
+        }
+
+        Ok(count)
     }
 
     /// Verify package integrity using SHA-256 hash

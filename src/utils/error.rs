@@ -10,6 +10,7 @@ pub enum PpmError {
     NetworkError(String),
     ValidationError(String),
     ExecutionError(String),
+    SymlinkError(String),
 }
 
 impl fmt::Display for PpmError {
@@ -20,6 +21,7 @@ impl fmt::Display for PpmError {
             PpmError::NetworkError(msg) => write!(f, "Network error: {}", msg),
             PpmError::ValidationError(msg) => write!(f, "Validation error: {}", msg),
             PpmError::ExecutionError(msg) => write!(f, "Execution error: {}", msg),
+            PpmError::SymlinkError(msg) => write!(f, "Symlink error: {}", msg),
         }
     }
 }
