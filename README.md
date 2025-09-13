@@ -66,6 +66,42 @@ cargo build --release
 
 The binary will be available at `target/release/ppm`.
 
+## 🗑️ Uninstallation
+
+### Quick Uninstall
+
+**Windows (PowerShell):**
+```powershell
+Invoke-WebRequest https://raw.githubusercontent.com/VesperAkshay/polypm/main/uninstall.ps1 -UseBasicParsing | Invoke-Expression
+```
+
+**Linux/macOS (Bash):**
+```bash
+curl -fsSL https://raw.githubusercontent.com/VesperAkshay/polypm/main/uninstall.sh | bash
+```
+
+### Manual Uninstallation
+
+Since PPM is installed as a standalone executable, you can manually remove it:
+
+1. **Find PPM location:**
+   ```bash
+   which ppm        # Linux/macOS
+   where ppm        # Windows
+   ```
+
+2. **Remove the executable:**
+   ```bash
+   rm $(which ppm)         # Linux/macOS
+   del "$(where ppm)"      # Windows
+   ```
+
+3. **Clean up project files (optional):**
+   - Remove `node_modules/` directories
+   - Remove `.venv/` directories  
+   - Remove `ppm.lock` files
+   - Remove global cache: `~/.ppm/` (Linux/macOS) or `%USERPROFILE%\.ppm\` (Windows)
+
 ### Prerequisites
 
 - Rust 1.75 or later
