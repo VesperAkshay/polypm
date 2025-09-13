@@ -47,7 +47,6 @@ curl -fsSL https://raw.githubusercontent.com/VesperAkshay/polypm/main/install.sh
 Download the latest release for your platform:
 - [Windows x64](https://github.com/VesperAkshay/polypm/releases/latest/download/ppm-windows-x86_64.exe)
 - [Linux x64](https://github.com/VesperAkshay/polypm/releases/latest/download/ppm-linux-x86_64)
-- [Linux ARM64](https://github.com/VesperAkshay/polypm/releases/latest/download/ppm-linux-aarch64)
 - [macOS x64](https://github.com/VesperAkshay/polypm/releases/latest/download/ppm-macos-x86_64)
 - [macOS ARM64](https://github.com/VesperAkshay/polypm/releases/latest/download/ppm-macos-aarch64)
 

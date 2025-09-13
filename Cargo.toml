@@ -28,8 +28,8 @@ toml = "0.8"
 # Async runtime
 tokio = { version = "1.35", features = ["full"] }
 
-# HTTP client for registry APIs
-reqwest = { version = "0.11", features = ["json", "stream", "rustls-tls"] }
+# HTTP client for registry APIs (using rustls instead of OpenSSL)
+reqwest = { version = "0.11", features = ["json", "stream", "rustls-tls"], default-features = false }
 
 # Async utilities for stream processing
 futures-util = "0.3"

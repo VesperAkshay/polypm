@@ -17,10 +17,6 @@ jobs:
             target: x86_64-unknown-linux-gnu
             artifact_name: ppm
             asset_name: ppm-linux-x86_64
-          - os: ubuntu-latest
-            target: aarch64-unknown-linux-gnu
-            artifact_name: ppm
-            asset_name: ppm-linux-aarch64
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             artifact_name: ppm.exe
@@ -43,18 +39,18 @@ jobs:
       with:
         targets: ${{ matrix.target }}
 
-    - name: Install cross (for Linux ARM)
-      if: matrix.target == 'aarch64-unknown-linux-gnu'
-      run: cargo install cross --git https://github.com/cross-rs/cross
+    - name: Install OpenSSL (Linux)
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y pkg-config libssl-dev
 
     - name: Build
-      run: |
-        if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
-          cross build --release --target ${{ matrix.target }}
-        else
-          cargo build --release --target ${{ matrix.target }}
-        fi
+      run: cargo build --release --target ${{ matrix.target }}
       shell: bash
+      env:
+        # Avoid OpenSSL issues by using rustls
+        CARGO_NET_GIT_FETCH_WITH_CLI: true
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
@@ -82,7 +78,6 @@ jobs:
       with:
         files: |
           artifacts/ppm-linux-x86_64/ppm
-          artifacts/ppm-linux-aarch64/ppm
           artifacts/ppm-windows-x86_64.exe/ppm.exe
           artifacts/ppm-macos-x86_64/ppm
           artifacts/ppm-macos-aarch64/ppm

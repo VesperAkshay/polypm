@@ -91,11 +91,8 @@ install_ppm_binary() {
         x86_64|amd64)
             arch="x86_64"
             ;;
-        aarch64|arm64)
-            arch="aarch64"
-            ;;
         *)
-            warning "Unsupported architecture: $arch"
+            warning "Unsupported architecture: $arch. Only x86_64 is supported."
             return 1
             ;;
     esac
