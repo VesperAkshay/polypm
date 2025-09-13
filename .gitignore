@@ -16,3 +16,9 @@ temp_test/
 test_venv/
 test_js/
 test_quickstart_validation/
+
+
+
+#Release
+release.ps1
+release.sh

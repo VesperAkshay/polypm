@@ -1,34 +1,20 @@
 [package]
 name = "ppm"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2021"
-authors = ["PPM Contributors"]
+authors = ["VesperAkshay <your-email@example.com>"]
 description = "A unified package manager for JavaScript and Python projects"
 license = "MIT"
+repository = "https://github.com/VesperAkshay/polypm"
+homepage = "https://github.com/VesperAkshay/polypm"
+documentation = "https://github.com/VesperAkshay/polypm#readme"
+keywords = ["package-manager", "javascript", "python", "polyglot", "dependencies"]
+categories = ["development-tools", "command-line-utilities"]
+readme = "README.md"
 
 [[bin]]
 name = "ppm"
 path = "src/main.rs"
-
-[[bin]]
-name = "test_config"
-path = "src/bin/test_config.rs"
-
-[[bin]]
-name = "debug_deps"
-path = "src/bin/debug_deps.rs"
-
-[[bin]]
-name = "test_express_registry"
-path = "src/bin/test_express_registry.rs"
-
-[[bin]]
-name = "test_express_full"
-path = "test_express_full.rs"
-
-[[bin]]
-name = "check_express_deps"
-path = "check_express_deps.rs"
 
 [dependencies]
 # CLI framework with derive support
