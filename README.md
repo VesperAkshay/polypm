@@ -28,7 +28,36 @@ A unified package manager for JavaScript and Python projects that enables seamle
 
 ## 🔧 Installation
 
-### From Source
+### Quick Install (Recommended)
+
+**Windows (PowerShell):**
+```powershell
+Invoke-WebRequest https://raw.githubusercontent.com/VesperAkshay/polypm/main/install.ps1 -UseBasicParsing | Invoke-Expression
+```
+
+**Linux/macOS (Bash):**
+```bash
+curl -fsSL https://raw.githubusercontent.com/VesperAkshay/polypm/main/install.sh | bash
+```
+
+### Alternative Installation Methods
+
+#### From Pre-built Binaries
+
+Download the latest release for your platform:
+- [Windows x64](https://github.com/VesperAkshay/polypm/releases/latest/download/ppm-windows-x86_64.exe)
+- [Linux x64](https://github.com/VesperAkshay/polypm/releases/latest/download/ppm-linux-x86_64)
+- [Linux ARM64](https://github.com/VesperAkshay/polypm/releases/latest/download/ppm-linux-aarch64)
+- [macOS x64](https://github.com/VesperAkshay/polypm/releases/latest/download/ppm-macos-x86_64)
+- [macOS ARM64](https://github.com/VesperAkshay/polypm/releases/latest/download/ppm-macos-aarch64)
+
+#### From Cargo (Rust Package Manager)
+
+```bash
+cargo install ppm
+```
+
+#### From Source
 
 ```bash
 git clone https://github.com/VesperAkshay/polypm.git
