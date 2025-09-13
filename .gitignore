@@ -1,5 +1,6 @@
 # Local development folders (not for public repo)
-.github/
+.github/prompts
+.github/copilot-instructions.md
 memory/
 scripts/
 templates/
@@ -22,3 +23,4 @@ test_quickstart_validation/
 #Release
 release.ps1
 release.sh
+PRODUCTION_RELEASE.md
