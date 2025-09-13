@@ -73,7 +73,7 @@ impl InstallCommand {
         // Check if project.toml exists
         if !Path::new("project.toml").exists() {
             return Err(PpmError::ConfigError(
-                "No project.toml found (run 'ppm init' first)".to_string()
+                "No project.toml found in current directory. Run 'ppm init' to create a new project.".to_string()
             ));
         }
 
@@ -176,8 +176,8 @@ impl InstallCommand {
     async fn verify_package_exists(&self, package_name: &str, _ecosystem: &Ecosystem) -> Result<()> {
         // Simulate package existence check
         if package_name.contains("nonexistent") {
-            return Err(PpmError::ConfigError(format!(
-                "Package '{}' not found",
+            return Err(PpmError::DependencyError(format!(
+                "Package '{}' not found in registry. Check the package name and try again.",
                 package_name
             )));
         }
@@ -246,7 +246,7 @@ impl InstallCommand {
         
         // Resolve dependencies
         let resolution_result = resolver.resolve_dependencies(all_deps).await
-            .map_err(|e| PpmError::ConfigError(format!("Cannot resolve dependencies: {}", e)))?;
+            .map_err(|e| PpmError::DependencyError(format!("Failed to resolve dependencies: {}", e)))?;
         
         if !resolution_result.failed.is_empty() {
             // Filter out non-critical failures

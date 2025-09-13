@@ -61,7 +61,7 @@ impl VenvHandler {
            !project.dev_dependencies.contains_key(&Ecosystem::Python) &&
            !project.ecosystems.contains(&Ecosystem::Python) {
             return Err(PpmError::ValidationError(
-                "This project does not use Python. Add Python dependencies first.".to_string()
+                "This project does not use Python.\n\nTo add Python support:\n  1. Add Python dependencies: ppm add requests --python\n  2. Or manually edit project.toml to include:\n     ecosystems = [\"python\"]\n     [dependencies.python]\n     requests = \"*\"".to_string()
             ));
         }
 
@@ -96,7 +96,7 @@ impl VenvHandler {
         let project_path = PathBuf::from("project.toml");
         if !project_path.exists() {
             return Err(PpmError::ConfigError(
-                "No project.toml found (run 'ppm init' first)".to_string()
+                "No project.toml found in current directory.\n\nTo initialize a new PPM project:\n  ppm init\n\nOr navigate to an existing PPM project directory.".to_string()
             ));
         }
 
@@ -120,8 +120,8 @@ impl VenvHandler {
 
         // Check if venv already exists
         if venv_path.exists() && !force {
-            let error_msg = format!("Virtual environment already exists at {} (use --force to recreate)", 
-                venv_path.display());
+            let error_msg = format!("Virtual environment already exists at {}.\n\nOptions:\n  1. Use existing venv: ppm venv info\n  2. Recreate venv: ppm venv create --force\n  3. Remove venv: ppm venv remove", 
+                self.normalize_path_display(&venv_path));
             if json {
                 let response = json!({
                     "status": "error",

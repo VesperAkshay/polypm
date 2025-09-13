@@ -75,20 +75,20 @@ impl AddCommand {
     fn validate_arguments(&self) -> Result<()> {
         if self.packages.is_empty() {
             return Err(PpmError::ValidationError(
-                "No packages specified (usage: ppm add <packages...>)".to_string()
+                "No packages specified. Please provide at least one package to add.\n\nUsage: ppm add <package1> [package2] ...\nExample: ppm add express lodash @types/node".to_string()
             ));
         }
 
         if self.javascript && self.python {
             return Err(PpmError::ValidationError(
-                "Cannot specify both --javascript and --python flags".to_string()
+                "Cannot specify both --javascript and --python flags at the same time.\n\nChoose one ecosystem:\n  ppm add <package> --javascript\n  ppm add <package> --python".to_string()
             ));
         }
 
-        if let Some(version) = &self.version {
+        if let Some(_version) = &self.version {
             if self.packages.len() > 1 {
                 return Err(PpmError::ValidationError(
-                    "Cannot specify --version with multiple packages".to_string()
+                    "Cannot use --version flag with multiple packages.\n\nFor multiple packages with specific versions, use:\n  ppm add package1@1.0.0 package2@2.0.0\n\nFor single package with version:\n  ppm add package1 --version 1.0.0".to_string()
                 ));
             }
         }
@@ -100,7 +100,7 @@ impl AddCommand {
         let project_path = PathBuf::from("project.toml");
         if !project_path.exists() {
             return Err(PpmError::ConfigError(
-                "No project.toml found (run 'ppm init' first)".to_string()
+                "No project.toml found in current directory.\n\nTo initialize a new PPM project:\n  ppm init\n\nOr navigate to an existing PPM project directory.".to_string()
             ));
         }
 
@@ -168,7 +168,7 @@ impl AddCommand {
             "react" | "lodash" | "express" | "jest" => Ok(Ecosystem::JavaScript),
             "flask" | "django" | "requests" | "pytest" => Ok(Ecosystem::Python),
             _ => Err(PpmError::ValidationError(
-                format!("Could not detect ecosystem for package '{}'. Use --javascript or --python to specify.", package_name)
+                format!("Could not detect ecosystem for package '{}'.\n\nPlease specify the ecosystem explicitly:\n  ppm add {} --javascript  (for npm packages)\n  ppm add {} --python      (for PyPI packages)", package_name, package_name, package_name)
             )),
         }
     }
@@ -178,7 +178,7 @@ impl AddCommand {
             if let Some(deps) = project.dependencies.get(ecosystem) {
                 if deps.contains_key(name) {
                     return Err(PpmError::ValidationError(
-                        format!("Package '{}' already exists in dependencies", name)
+                        format!("Package '{}' already exists in dependencies.\n\nTo update the version:\n  1. Edit project.toml directly\n  2. Run 'ppm install' to apply changes\n\nTo add as dev dependency instead:\n  ppm add {} --save-dev", name, name)
                     ));
                 }
             }
@@ -186,7 +186,7 @@ impl AddCommand {
             if let Some(dev_deps) = project.dev_dependencies.get(ecosystem) {
                 if dev_deps.contains_key(name) {
                     return Err(PpmError::ValidationError(
-                        format!("Package '{}' already exists in dev-dependencies", name)
+                        format!("Package '{}' already exists in dev-dependencies.\n\nTo update the version:\n  1. Edit project.toml directly\n  2. Run 'ppm install' to apply changes\n\nTo add as regular dependency instead:\n  ppm add {} (without --save-dev)", name, name)
                     ));
                 }
             }

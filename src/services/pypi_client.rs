@@ -190,35 +190,35 @@ pub struct PypiSimpleMeta {
 #[derive(Debug, thiserror::Error)]
 pub enum PypiError {
     /// HTTP request failed
-    #[error("Registry request failed: {0}")]
+    #[error("Failed to connect to PyPI registry: {0}")]
     RequestFailed(#[from] reqwest::Error),
     
     /// Package not found in registry
-    #[error("Package '{0}' not found")]
+    #[error("Package '{0}' not found in PyPI registry")]
     PackageNotFound(String),
     
     /// Version not found for package
-    #[error("Version '{1}' not found for package '{0}'")]
+    #[error("Version '{1}' not found for package '{0}' in PyPI registry")]
     VersionNotFound(String, String),
     
     /// Invalid package name
-    #[error("Invalid package name: {0}")]
+    #[error("Invalid Python package name '{0}' - package names must follow PEP 508 conventions")]
     InvalidPackageName(String),
     
     /// Registry response parsing failed
-    #[error("Failed to parse registry response: {0}")]
+    #[error("Failed to parse PyPI registry response: {0}")]
     ParseError(String),
     
     /// Network timeout
-    #[error("Request timeout")]
+    #[error("Request to PyPI registry timed out - check your internet connection")]
     Timeout,
     
     /// Rate limiting
-    #[error("Rate limited by registry")]
+    #[error("Rate limited by PyPI registry - please wait before trying again")]
     RateLimited,
     
     /// Invalid Python version specification
-    #[error("Invalid Python version specification: {0}")]
+    #[error("Invalid Python version specification '{0}' - must follow PEP 440 format")]
     InvalidPythonVersion(String),
 }
 

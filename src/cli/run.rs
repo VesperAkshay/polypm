@@ -45,7 +45,7 @@ impl RunCommand {
 
         // Require script name if not listing
         let script_name = self.script.as_ref().ok_or_else(|| {
-            PpmError::ValidationError("Script name required (use --list to see available scripts)".to_string())
+            PpmError::ValidationError("Script name required.\n\nUsage:\n  ppm run <script-name>    # Run a script\n  ppm run --list          # List all available scripts\n\nExample: ppm run build".to_string())
         })?;
 
         // Handle --env flag
@@ -74,6 +74,11 @@ impl RunCommand {
                     .map_err(|e| PpmError::ConfigError(format!("JSON serialization error: {}", e)))?);
             } else {
                 println!("No scripts defined in project.toml");
+                println!("\nTo add scripts, edit your project.toml file:");
+                println!("[scripts]");
+                println!("build = \"npm run build\"");
+                println!("test = \"npm test\"");
+                println!("start = \"node index.js\"");
             }
             return Ok(());
         }
@@ -106,10 +111,15 @@ impl RunCommand {
     fn show_environment(&self, project: &Project, script_name: &str) -> Result<()> {
         // Check if script exists
         if !project.scripts.contains_key(script_name) {
+            let available_scripts: Vec<_> = project.scripts.keys().cloned().collect();
+            let suggestion = if available_scripts.is_empty() {
+                "\n\nNo scripts are currently defined. Add some to your project.toml:\n[scripts]\nbuild = \"npm run build\"\ntest = \"npm test\"".to_string()
+            } else {
+                format!("\n\nAvailable scripts: {}\n\nUse 'ppm run --list' to see all scripts with their commands.", available_scripts.join(", "))
+            };
+            
             return Err(PpmError::ValidationError(
-                format!("Script '{}' not found. Available scripts: {}", 
-                    script_name, 
-                    project.scripts.keys().cloned().collect::<Vec<_>>().join(", "))
+                format!("Script '{}' not found.{}", script_name, suggestion)
             ));
         }
 
@@ -137,17 +147,21 @@ impl RunCommand {
         // Check if any scripts are defined
         if project.scripts.is_empty() {
             return Err(PpmError::ValidationError(
-                "No scripts defined in project.toml".to_string()
+                "No scripts defined in project.toml.\n\nTo add scripts, edit your project.toml file:\n[scripts]\nbuild = \"npm run build\"\ntest = \"npm test\"\nstart = \"node index.js\"\n\nThen run: ppm run <script-name>".to_string()
             ));
         }
 
         // Find the script
         let script_command = project.scripts.get(script_name).ok_or_else(|| {
             let available: Vec<_> = project.scripts.keys().cloned().collect();
+            let suggestion = if available.is_empty() {
+                "\n\nNo scripts available. Add some to your project.toml:\n[scripts]\nbuild = \"your-build-command\"".to_string()
+            } else {
+                format!("\n\nDid you mean one of these?\n  {}\n\nUse 'ppm run --list' to see all available scripts.", available.join("\n  "))
+            };
+            
             PpmError::ValidationError(
-                format!("Script '{}' not found. Available scripts: {}", 
-                    script_name, 
-                    available.join(", "))
+                format!("Script '{}' not found.{}", script_name, suggestion)
             )
         })?;
 
@@ -203,7 +217,11 @@ impl RunCommand {
         // Return error if script failed
         if exit_code != 0 {
             return Err(PpmError::ExecutionError(
-                format!("Script '{}' failed with exit code {}", script_name, exit_code)
+                format!("Script '{}' failed with exit code {}.\n\nCommand executed: {}\nArguments: {}\n\nCheck the output above for error details.", 
+                    script_name, 
+                    exit_code, 
+                    script_command,
+                    if self.args.is_empty() { "none".to_string() } else { self.args.join(" ") })
             ));
         }
 

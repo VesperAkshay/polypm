@@ -19,6 +19,24 @@ use self::venv::{VenvHandler, VenvCommands};
 #[derive(Parser)]
 #[command(name = "ppm")]
 #[command(about = "A unified package manager for JavaScript and Python projects")]
+#[command(long_about = r#"PPM (Polyglot Package Manager) enables seamless dependency management 
+across JavaScript and Python ecosystems in a single project.
+
+Features:
+  • Unified project.toml configuration
+  • Automatic virtual environment management
+  • Cross-platform symlink support
+  • Script execution with proper environment setup
+  • Dependency locking and reproducible builds
+
+Examples:
+  ppm init --name my-project    Initialize a new polyglot project
+  ppm add express requests      Add packages from different ecosystems
+  ppm install                   Install all dependencies
+  ppm run build                 Execute project scripts
+  ppm venv create              Create Python virtual environment
+
+For detailed documentation, visit: https://github.com/VesperAkshay/polypm"#)]
 #[command(version)]
 pub struct Cli {
     #[command(subcommand)]
@@ -29,6 +47,18 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Commands {
     /// Initialize a new polyglot project
+    #[command(long_about = r#"Initialize a new polyglot project with unified configuration.
+
+Creates a project.toml file with sensible defaults for JavaScript and Python 
+dependency management. You can customize the project name, version, and 
+supported ecosystems.
+
+Examples:
+  ppm init                              Create project with auto-detected name
+  ppm init --name my-app --version 0.1.0  Custom name and version  
+  ppm init --javascript                 JavaScript-only project
+  ppm init --python                     Python-only project
+  ppm init --force                      Overwrite existing project.toml"#)]
     Init {
         /// Project name (default: current directory name)
         #[arg(long)]
@@ -55,7 +85,22 @@ pub enum Commands {
         json: bool,
     },
     
-    /// Install dependencies
+    /// Install dependencies from project.toml or add new packages
+    #[command(long_about = r#"Install project dependencies from project.toml or add new packages.
+
+When run without arguments, installs all dependencies listed in project.toml:
+  • JavaScript packages to node_modules/ with symlink optimization
+  • Python packages to virtual environment (.venv/)
+  • Creates lock file for reproducible builds
+
+When packages are specified, adds them to project.toml and installs.
+
+Examples:
+  ppm install                           Install all dependencies from project.toml
+  ppm install --dev                     Include dev dependencies
+  ppm install --python                  Python packages only
+  ppm install express@4.18.0           Add and install specific package
+  ppm install --offline                Use cached packages only"#)]
     Install {
         /// Packages to install (if empty, install from project.toml)
         packages: Vec<String>,
@@ -85,7 +130,22 @@ pub enum Commands {
         json: bool,
     },
     
-    /// Add a new dependency
+    /// Add new dependencies to the project
+    #[command(long_about = r#"Add new dependencies to project.toml and install them.
+
+Automatically detects the package ecosystem (JavaScript vs Python) and adds 
+the dependency to the appropriate section. You can override detection with 
+--javascript or --python flags.
+
+The package is added to project.toml and immediately installed. Use --save-dev 
+to add to development dependencies instead.
+
+Examples:
+  ppm add express                       Auto-detect ecosystem and add
+  ppm add express@^4.18.0              Add with specific version constraint
+  ppm add @types/node --javascript     Force JavaScript ecosystem  
+  ppm add pytest black --python --save-dev  Python dev dependencies
+  ppm add package --version "~1.0.0"   Add with version flag"#)]
     Add {
         /// List of packages to add
         packages: Vec<String>,
@@ -106,7 +166,22 @@ pub enum Commands {
         json: bool,
     },
     
-    /// Run project scripts
+    /// Execute project scripts with proper environment setup
+    #[command(long_about = r#"Execute scripts defined in project.toml [scripts] section.
+
+Scripts run with the proper environment setup for both JavaScript and Python:
+  • NODE_PATH set to node_modules directory
+  • Python virtual environment activated
+  • PPM environment variables available
+
+Use --list to see all available scripts, or --env to inspect the environment 
+that would be set for a specific script.
+
+Examples:
+  ppm run build                         Execute the 'build' script
+  ppm run test -- --verbose            Pass arguments to the script
+  ppm run --list                       Show all available scripts
+  ppm run start --env                  Show environment for 'start' script"#)]
     Run {
         /// Script name from project.toml [scripts] section
         script: Option<String>,
@@ -123,7 +198,24 @@ pub enum Commands {
         json: bool,
     },
     
-    /// Manage virtual environments
+    /// Manage Python virtual environments
+    #[command(long_about = r#"Create and manage Python virtual environments for the project.
+
+PPM automatically creates and manages Python virtual environments to isolate 
+Python dependencies. The virtual environment is created in .venv/ by default
+and activated automatically when running Python scripts.
+
+Subcommands:
+  create    Create a new virtual environment (default action)
+  remove    Remove the existing virtual environment  
+  info      Show information about the current virtual environment
+  shell     Print activation command for current shell (Unix only)
+
+Examples:
+  ppm venv create                       Create virtual environment with defaults
+  ppm venv create --python python3.11  Use specific Python version
+  ppm venv info                         Show current virtual environment details
+  ppm venv remove                       Remove virtual environment"#)]
     Venv {
         /// Venv subcommand
         #[command(subcommand)]

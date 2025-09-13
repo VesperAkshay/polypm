@@ -106,31 +106,31 @@ pub enum NpmAuthor {
 #[derive(Debug, thiserror::Error)]
 pub enum NpmError {
     /// HTTP request failed
-    #[error("Registry request failed: {0}")]
+    #[error("Failed to connect to npm registry: {0}")]
     RequestFailed(#[from] reqwest::Error),
     
     /// Package not found in registry
-    #[error("Package '{0}' not found")]
+    #[error("Package '{0}' not found in npm registry")]
     PackageNotFound(String),
     
     /// Version not found for package
-    #[error("Version '{1}' not found for package '{0}'")]
+    #[error("Version '{1}' not found for package '{0}' in npm registry")]
     VersionNotFound(String, String),
     
     /// Invalid package name
-    #[error("Invalid package name: {0}")]
+    #[error("Invalid npm package name '{0}' - package names must follow npm naming conventions")]
     InvalidPackageName(String),
     
     /// Registry response parsing failed
-    #[error("Failed to parse registry response: {0}")]
+    #[error("Failed to parse npm registry response: {0}")]
     ParseError(String),
     
     /// Network timeout
-    #[error("Request timeout")]
+    #[error("Request to npm registry timed out - check your internet connection")]
     Timeout,
     
     /// Rate limiting
-    #[error("Rate limited by registry")]
+    #[error("Rate limited by npm registry - please wait before trying again")]
     RateLimited,
 }
 

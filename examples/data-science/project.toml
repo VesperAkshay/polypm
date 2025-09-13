@@ -1,0 +1,57 @@
+[project]
+name = "data-science-project"
+version = "1.0.0"
+
+# Core Data Science Dependencies
+[dependencies.python]
+pandas = "^2.0.0"
+numpy = "^1.24.0"
+matplotlib = "^3.7.0"
+seaborn = "^0.12.0"
+plotly = "^5.14.0"
+scipy = "^1.10.0"
+scikit-learn = "^1.2.0"
+jupyter = "^1.0.0"
+jupyterlab = "^4.0.0"
+ipykernel = "^6.22.0"
+ipywidgets = "^8.0.0"
+python-dotenv = "^1.0.0"
+
+# Development Dependencies
+[dev-dependencies.python]
+pytest = "^7.2.0"
+black = "^23.1.0"
+flake8 = "^6.0.0"
+mypy = "^1.1.0"
+coverage = "^7.2.0"
+notebook = "^6.5.0"
+
+# Project Scripts
+[scripts]
+# Jupyter Environment
+jupyter = "jupyter lab --ip=0.0.0.0 --port=8888 --no-browser"
+notebook = "jupyter notebook --ip=0.0.0.0 --port=8888 --no-browser"
+
+# Data Pipeline
+pipeline = "python src/pipeline.py"
+data:download = "python scripts/download_data.py"
+data:clean = "python src/data/clean.py"
+features:generate = "python src/features/generate.py"
+models:train = "python src/models/train.py"
+models:evaluate = "python src/models/evaluate.py"
+reports:generate = "python scripts/generate_report.py"
+
+# Development
+test = "python -m pytest tests/ -v"
+test:coverage = "coverage run -m pytest tests/ && coverage report && coverage html"
+lint = "flake8 src/ tests/ && mypy src/"
+format = "black src/ tests/ scripts/"
+
+# Data Analysis
+explore = "python -c \"import pandas as pd; from src.data.loader import load_dataset; df = load_dataset('sample.csv'); print(df.info())\""
+summary = "python scripts/data_summary.py"
+
+# Virtual Environment Configuration
+[venv]
+python = "python3.11"
+path = ".venv"

@@ -5,3 +5,4 @@ pub mod config;
 pub mod fs_utils;
 pub mod version;
 pub mod lock_file;
+pub mod validation;

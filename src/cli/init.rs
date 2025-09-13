@@ -2,7 +2,6 @@ use clap::Args;
 use std::fs;
 use serde::{Deserialize, Serialize};
 use crate::utils::error::{PpmError, Result};
-use crate::utils::config::ConfigParser;
 
 /// Initialize a new polyglot project with unified configuration
 #[derive(Debug, Args)]
@@ -53,7 +52,7 @@ impl InitCommand {
         // Check if project.toml already exists
         if config_path.exists() && !self.force {
             return Err(PpmError::ValidationError(
-                "project.toml already exists (use --force to overwrite)".to_string()
+                "project.toml already exists in this directory.\n\nOptions:\n  1. Use existing project: ppm install\n  2. Overwrite config: ppm init --force\n  3. Choose different directory\n\nCurrent project.toml will be preserved unless --force is used.".to_string()
             ));
         }
         
@@ -130,21 +129,21 @@ impl InitCommand {
 fn validate_project_name(name: &str) -> Result<()> {
     if name.is_empty() {
         return Err(PpmError::ValidationError(
-            "Invalid project name '' (must be valid identifier)".to_string()
+            "Project name cannot be empty.\n\nProvide a valid project name:\n  ppm init --name my-project\n\nProject names must contain only letters, numbers, hyphens, and underscores.".to_string()
         ));
     }
     
     // Check if name contains only valid characters (alphanumeric, hyphens, underscores)
     if !name.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
         return Err(PpmError::ValidationError(
-            format!("Invalid project name '{}' (must be valid identifier)", name)
+            format!("Invalid project name '{}'.\n\nProject names must contain only:\n  - Letters (a-z, A-Z)\n  - Numbers (0-9)\n  - Hyphens (-)\n  - Underscores (_)\n\nExample: my-awesome-project", name)
         ));
     }
     
     // Name should not start or end with hyphen/underscore
     if name.starts_with('-') || name.starts_with('_') || name.ends_with('-') || name.ends_with('_') {
         return Err(PpmError::ValidationError(
-            format!("Invalid project name '{}' (must be valid identifier)", name)
+            format!("Invalid project name '{}'.\n\nProject names cannot start or end with hyphens (-) or underscores (_).\n\nExamples:\n  ✓ my-project\n  ✓ awesome_app\n  ✗ -invalid\n  ✗ invalid_", name)
         ));
     }
     
@@ -158,7 +157,7 @@ fn validate_version(version: &str) -> Result<()> {
     
     if parts.len() != 3 {
         return Err(PpmError::ValidationError(
-            format!("Invalid version '{}' (must be valid semver)", version)
+            format!("Invalid version '{}'.\n\nVersions must follow semantic versioning (semver) format:\n  MAJOR.MINOR.PATCH\n\nExamples:\n  ✓ 1.0.0\n  ✓ 2.1.5\n  ✗ 1.0\n  ✗ v1.0.0", version)
         ));
     }
     
@@ -166,7 +165,7 @@ fn validate_version(version: &str) -> Result<()> {
     for part in parts {
         if part.parse::<u32>().is_err() {
             return Err(PpmError::ValidationError(
-                format!("Invalid version '{}' (must be valid semver)", version)
+                format!("Invalid version '{}'.\n\nEach part of the version must be a non-negative integer:\n  MAJOR.MINOR.PATCH\n\nExamples:\n  ✓ 1.0.0\n  ✓ 10.25.100\n  ✗ 1.0.0-alpha\n  ✗ 1.x.0", version)
             ));
         }
     }
