@@ -1,16 +1,18 @@
-memory
-scripts
-specs
-templates
-.github/copilot-instructions.md
+# Local development folders (not for public repo)
+.github/
+memory/
+scripts/
+templates/
+
+# Project specifications (local development only)
+specs/
 
 # Added by cargo
-
 /target
 
-
-#Test-Directories
-testdir
-temp_test
-test_venv
-test_js
+# Test directories (local development only)
+testdir/
+temp_test/
+test_venv/
+test_js/
+test_quickstart_validation/
