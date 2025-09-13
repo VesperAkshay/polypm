@@ -24,7 +24,7 @@ jobs:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             artifact_name: ppm.exe
-            asset_name: ppm-windows-x86_64.exe
+            asset_name: ppm-windows-x86_64
           - os: macos-latest
             target: x86_64-apple-darwin
             artifact_name: ppm
@@ -81,15 +81,24 @@ jobs:
 
     - name: List artifacts
       run: find ./artifacts -type f -name "*"
+
+    - name: Prepare release assets
+      run: |
+        mkdir -p ./release-assets
+        cp artifacts/ppm-linux-x86_64/ppm ./release-assets/ppm-linux-x86_64
+        cp artifacts/ppm-windows-x86_64/ppm.exe ./release-assets/ppm-windows-x86_64.exe
+        cp artifacts/ppm-macos-x86_64/ppm ./release-assets/ppm-macos-x86_64
+        cp artifacts/ppm-macos-aarch64/ppm ./release-assets/ppm-macos-aarch64
+        ls -la ./release-assets/
         
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          artifacts/ppm-linux-x86_64/ppm
-          artifacts/ppm-windows-x86_64.exe/ppm.exe
-          artifacts/ppm-macos-x86_64/ppm
-          artifacts/ppm-macos-aarch64/ppm
+          release-assets/ppm-linux-x86_64
+          release-assets/ppm-windows-x86_64.exe
+          release-assets/ppm-macos-x86_64
+          release-assets/ppm-macos-aarch64
         draft: false
         prerelease: false
         generate_release_notes: true
