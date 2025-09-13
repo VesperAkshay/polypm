@@ -1,9 +1,12 @@
 # Local development folders (not for public repo)
-.github/prompts
+.github/prompts/
 .github/copilot-instructions.md
 memory/
 scripts/
 templates/
+
+# Allow workflows but ignore other .github content
+!.github/workflows/
 
 # Project specifications (local development only)
 specs/
