@@ -352,6 +352,37 @@ When making changes:
 
 ## Reporting Issues
 
+We use GitHub Issues to track all bugs and feature requests. We've set up several issue templates to help you submit well-structured reports. When creating a new issue, you'll be prompted to choose the most appropriate template.
+
+### Issue Types
+
+1. **🐛 Bug Report**
+   - For reporting bugs and unexpected behavior
+   - Please include steps to reproduce, expected vs actual behavior, and environment details
+   - [Create a Bug Report](https://github.com/VesperAkshay/polypm/issues/new?template=bug_report.md)
+
+2. **🚀 Feature Request**
+   - For suggesting new features or improvements
+   - Please describe the use case and why it would be valuable
+   - [Request a Feature](https://github.com/VesperAkshay/polypm/issues/new?template=feature_request.md)
+
+3. **🔒 Security Vulnerability**
+   - For reporting security issues
+   - Please do not disclose security issues publicly
+   - [Report a Security Issue](https://github.com/VesperAkshay/polypm/security/advisories/new)
+
+4. **✨ Enhancement**
+   - For proposing specific improvements to existing features
+   - Please include the benefit and potential impact
+   - [Suggest an Enhancement](https://github.com/VesperAkshay/polypm/issues/new?template=enhancement.md)
+
+### Before You Submit
+
+- Search existing issues to avoid duplicates
+- Check if the issue has been fixed in the latest version
+- Provide as much detail as possible
+- Include code samples or test cases where applicable
+
 ### Bug Reports
 
 Use the bug report template:

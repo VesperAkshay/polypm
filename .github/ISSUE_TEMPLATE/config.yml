@@ -1,0 +1,9 @@
+blank_issues_enabled: true
+blank_issue_enabled_message: "Blank issues are allowed but will be hidden until reviewed. We recommend using one of our issue templates for better tracking."
+contact_links:
+  - name: ❓ Ask a Question
+    url: https://github.com/VesperAkshay/polypm/discussions
+    about: Ask and answer questions about using this project
+  - name: 💬 Join our Community
+    url: https://github.com/VesperAkshay/polypm/discussions
+    about: Join the discussion with other community members
